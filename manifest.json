@@ -1,9 +1,10 @@
 {
   "id": "clowder-atlas",
   "name": "Clowder Atlas",
-  "version": "0.8.17",
+  "version": "0.0.1",
   "minAppVersion": "1.14.5",
   "description": "Explore linked notes in a memory star chart, inspect provenance, and optionally discuss selected passages with Clowder AI companions.",
   "author": "Clowder AI",
-  "isDesktopOnly": true
+  "isDesktopOnly": true,
+  "authorUrl": "https://github.com/YukinaXSer/clowder-atlas"
 }

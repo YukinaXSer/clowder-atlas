@@ -1,14 +1,24 @@
 {
   "name": "clowder-atlas",
-  "version": "0.8.17",
+  "version": "0.0.1",
   "private": true,
   "description": "A local memory atlas with optional Clowder AI companions.",
   "license": "MIT",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "check": "node scripts/check.mjs",
     "test": "npm run check && node test/passage.mjs",
     "test:desktop": "node test/desktop-smoke.mjs"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YukinaXSer/clowder-atlas.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YukinaXSer/clowder-atlas/issues"
+  },
+  "homepage": "https://github.com/YukinaXSer/clowder-atlas#readme"
 }

@@ -6,9 +6,9 @@
 
 ## 安装与开始使用
 
-本目录目前是发布候选，尚未在社区插件目录上架。手动安装时，将同一次 Release 的 `main.js`、`manifest.json`、`styles.css` 放入 `<vault>/.obsidian/plugins/clowder-atlas/`，在「设置 → 第三方插件」启用。更新文件后重新加载插件。
+这是首个公开版本，目前尚未在社区插件目录上架。手动安装时，将同一次 Release 的 `main.js`、`manifest.json`、`styles.css` 放入 `<vault>/.obsidian/plugins/clowder-atlas/`，在「设置 → 第三方插件」启用。更新文件后重新加载插件。
 
-本候选只声明支持桌面版 Obsidian **1.14.5+**；这是保守的验收基线，未验证更早版本和移动端。使用插件不需要 Node.js，只有从源码构建时需要 Node.js 22+。
+本版本只声明支持桌面版 Obsidian **1.14.5+**；这是保守的验收基线，未验证更早版本和移动端。使用插件不需要 Node.js，只有从源码构建时需要 Node.js 22+。
 
 启用后星图和透镜会自动打开。普通笔记也能进入星图；在透镜里点「✨ 赋予这篇笔记记忆身份」，可补充语义/情景/程序等分类。需要自己审阅的内容先存为待结晶笔记，点亮后，位于 `_atlas/pending/` 的笔记才移动到 `_atlas/crystals/`。导出 Canvas 会新建文件。
 

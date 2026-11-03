@@ -1,6 +1,6 @@
-# 0.8.17 — initial distribution candidate
+# 0.0.1 — first public release
 
-This is an unpublished packaging candidate. Its feature code and stylesheet match the locally accepted 0.8.16 implementation.
+The first public version starts at 0.0.1. Its feature code and stylesheet match the locally accepted 0.8.16 development implementation.
 
 - Explore linked Markdown notes in the memory star chart and inspect provenance in the Lens.
 - Curate draft, pending, and crystallized notes and export Atlas notes to Canvas.

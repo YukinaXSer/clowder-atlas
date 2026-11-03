@@ -20,7 +20,7 @@ Clowder Atlas works without an AI service for local exploration and curation. Ch
 
 ## Installation
 
-These are early public releases. The Community directory review is in progress.
+Clowder Atlas is [listed in the Obsidian Community directory](https://community.obsidian.md/plugins/clowder-atlas). Select **Add to Obsidian** on that page to open the plugin in desktop Obsidian, then install and enable it. Manual installation is also available below.
 
 For manual installation, download the three assets from the same release: `main.js`, `manifest.json`, and `styles.css`. Put them in `<vault>/.obsidian/plugins/clowder-atlas/`, then enable **Clowder Atlas** in **Settings → Community plugins**. Reload the plugin after updating its files.
 

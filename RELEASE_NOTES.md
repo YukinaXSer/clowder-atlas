@@ -1,3 +1,12 @@
+# 0.0.4 — cats' replies appear as they are written
+
+- A cat's reply now shows up in the chat by itself, without switching conversations or refreshing. The Cat Cafe adds a reply as soon as the cat starts, empty, and fills in its words in place until it is done; the chat only looked for new messages, so a reply first seen empty stayed that way. It now notices a reply's words and state changing too.
+- While a cat is writing, its bubble says 正在回复… until the first words arrive, then shows them as they grow, marked 回复中…. Saving a reply as a pending note, excerpting it and replacing a passage become available once it is done. A reply that ended short is marked 回复失败, 回复已取消 or 回复中断.
+- The conversation is read every 1.5 seconds while a reply is being written and right after you send, otherwise every 5 seconds as before.
+- Updates keep your place: if you scrolled up to read, the view stays there; long messages you opened with 展开全文 stay open.
+
+Install the three individual assets from the same release: `main.js`, `manifest.json`, `styles.css`.
+
 # 0.0.3 — seminars in a conversation of their own
 
 - Starting a seminar now asks where it takes place: **🆕 新开对话** (the default) or **💬 用现有对话**. Before, every seminar was posted to the first conversation in the vault's list, whatever the chat panel showed.

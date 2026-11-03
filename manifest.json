@@ -1,7 +1,7 @@
 {
   "id": "clowder-atlas",
   "name": "Clowder Atlas",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "minAppVersion": "1.14.5",
   "description": "Explore linked notes in a memory star chart, inspect provenance, and optionally discuss selected passages with Clowder AI companions.",
   "author": "Clowder AI",

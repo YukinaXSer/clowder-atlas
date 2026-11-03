@@ -1745,6 +1745,12 @@ body.theme-dark {
   color: rgba(255,255,255,0.6);
   font-style: italic;
 }
+/* A cat's reply being written (回复中…, or 正在回复… before its first words), or one that ended short of completion */
+.atlas-chat-bubble.is-cat .atlas-chat-pending,
+.atlas-chat-text.is-writing {
+  color: var(--text-muted);
+  font-style: italic;
+}
 .atlas-chat-offline {
   display: flex;
   flex-direction: column;

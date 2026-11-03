@@ -1,6 +1,6 @@
 {
   "name": "clowder-atlas",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "description": "A local memory atlas with optional Clowder AI companions.",
   "license": "MIT",
@@ -10,7 +10,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check": "node scripts/check.mjs",
-    "test": "npm run check && node test/passage.mjs",
+    "test": "npm run check && node test/passage.mjs && node test/chat.mjs",
     "test:desktop": "node test/desktop-smoke.mjs"
   },
   "repository": {

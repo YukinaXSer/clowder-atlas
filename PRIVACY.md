@@ -14,7 +14,7 @@ Plugin preferences, summoned companion IDs, failed message content and attachmen
 
 ## Optional requests
 
-After connection is enabled, the plugin reads health, cats, threads, and messages from the configured Cat Cafe API. Roster checks repeat every 30 seconds while connected; open chat also polls for messages. Avatar URLs use that instance's frontend origin. The client uses the existing Cat Cafe `default-user` convention; it is not a general-purpose authenticated multi-user client.
+After connection is enabled, the plugin reads health, cats, threads, and messages from the configured Cat Cafe API. Roster checks repeat every 30 seconds while connected; open chat also reads its conversation's messages every 5 seconds, and every 1.5 seconds while a cat's reply is being written or just after you send. Avatar URLs use that instance's frontend origin. The client uses the existing Cat Cafe `default-user` convention; it is not a general-purpose authenticated multi-user client.
 
 The one-click connection action probes the saved address and these loopback ports: 3004, 3000, 3001, 3005, 4000, 8080. No automatic connection probe runs in a fresh install. User-clicked download/help links open GitHub in your browser; paper links open arXiv.
 

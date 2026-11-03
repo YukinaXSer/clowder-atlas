@@ -139,6 +139,15 @@ function passageShown(p, request) {
 }
 
 /**
+ * What the chat shows of its messages. A cat's reply is admitted empty as soon as the cat starts (lifecycle status
+ * processing); its words then grow in place (isDraft) and it settles as completed, failed, canceled or interrupted —
+ * keeping its id. So a change of any message's words or state, not only a new message, is a change to show.
+ */
+function messagesKey(messages) {
+  return JSON.stringify((messages || []).map((m) => [m.id, m.content || '', m.lifecycle?.status ?? null, Boolean(m.isDraft)]));
+}
+
+/**
  * The name a seminar's own new conversation starts with: what the seminar is about (the passage or the note sent with
  * it, else the start of its topic). It is the cafe's temporary title, so the first cat to answer names the conversation.
  */
@@ -2412,7 +2421,9 @@ class CafeChatView extends obsidian.ItemView {
     this._messages = [];
     this._threadId = null;
     this._autoScroll = true;
-    this._lastMessageId = null;
+    this._messagesKey = null;     // what is on screen (see messagesKey); a read showing anything else renders it
+    this._expanded = new Set();   // long messages opened with 展开全文: they stay open when the list is rendered again
+    this._pollRun = null;         // the one chain of message reads (see _startPolling)
     this._attachNote = false;
     this._pendingContext = null;
     this._resetRefs();
@@ -2526,7 +2537,7 @@ class CafeChatView extends obsidian.ItemView {
       this._threadId = options.threadId;
       if (this._threadSelect) this._threadSelect.value = options.threadId;
       this._messages = [];
-      this._lastMessageId = null;
+      this._messagesKey = null;
       this._renderMessages();
     }
     if (options.attachFile) {
@@ -2545,6 +2556,7 @@ class CafeChatView extends obsidian.ItemView {
       this._input.focus();
     }
     await this._loadMessages();
+    this._pollSoon();
   }
 
   _renderOffline(container) {
@@ -2821,7 +2833,7 @@ class CafeChatView extends obsidian.ItemView {
         if (this._threadId) new obsidian.Notice(next ? `💬 当前对话已不在猫咖里，已切到「${next.title || '对话'}」` : '💬 当前对话已不在猫咖里');
         this._threadId = next?.id ?? null;
         this._messages = [];
-        this._lastMessageId = null;
+        this._messagesKey = null;
         this._renderMessages();
         if (next) this._loadMessages();
       }
@@ -2836,7 +2848,7 @@ class CafeChatView extends obsidian.ItemView {
       this._threadSelect.addEventListener('change', async () => {
         this._threadId = this._threadSelect.value;
         this._messages = [];
-        this._lastMessageId = null;
+        this._messagesKey = null;
         await this._loadMessages();
       });
     } else {
@@ -3019,6 +3031,7 @@ class CafeChatView extends obsidian.ItemView {
       });
       console.log('Clowder Atlas: Message sent, queued to', resp.entries?.map(e => e.targetCatId).join(', '));
       if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
+      this._pollSoon();  // the message, and soon the cats' replies, are read back from the cafe
     } catch (err) {
       // It did not land. It is kept — the text as typed, what was sent, its thread and the reason — as a failed message
       // in that conversation, to resend, put back into the draft box (after a newer draft, never over it) or delete.
@@ -3114,7 +3127,7 @@ class CafeChatView extends obsidian.ItemView {
       plugin.endResend(record.id);
       await plugin.dropFailedSend(record.id);
       new obsidian.Notice('↻ 已重发');
-      if ((record.threadId ?? null) === (this._threadId ?? null)) this._loadMessages();
+      if ((record.threadId ?? null) === (this._threadId ?? null)) { this._loadMessages(); this._pollSoon(); }
     } catch (err) {
       plugin.endResend(record.id);
       const reason = err.message || '未知错误';
@@ -3153,6 +3166,8 @@ class CafeChatView extends obsidian.ItemView {
 
   _renderMessages() {
     if (!this._messageArea) return;
+    this._messagesKey = messagesKey(this._messages);
+    const keep = this._autoScroll ? null : this._messageArea.scrollTop;  // read further up: stay there
     this._messageArea.empty();
 
     const failed = this._failedHere();
@@ -3174,10 +3189,7 @@ class CafeChatView extends obsidian.ItemView {
       this._renderOneMessage(this._failedMessage(record), client);
     }
 
-    if (this._autoScroll) {
-      this._messageArea.scrollTop = this._messageArea.scrollHeight;
-    }
-    this._lastMessageId = this._messages[this._messages.length - 1]?.id;
+    this._messageArea.scrollTop = keep ?? this._messageArea.scrollHeight;
   }
 
   _renderOneMessage(msg, client) {
@@ -3198,19 +3210,29 @@ class CafeChatView extends obsidian.ItemView {
       }
     }
 
+    // A cat's reply: processing while it is being written (its words so far), then completed — or failed, canceled,
+    // interrupted, when it ended short of that
+    const state = msg.lifecycle?.kind === 'response' ? msg.lifecycle.status : null;
+    const writing = state === 'processing';
     const content = msg.content || '';
     const isLong = content.length > 600;
-    let expanded = false;
+    let expanded = isLong && this._expanded.has(msg.id);
     const textEl = bubble.createDiv('atlas-chat-text');
-    textEl.textContent = isLong ? content.substring(0, 600) + '…' : content;
+    if (writing && !content) {
+      textEl.textContent = '正在回复…';
+      textEl.addClass('is-writing');
+    } else {
+      textEl.textContent = isLong && !expanded ? content.substring(0, 600) + '…' : content;
+    }
 
     if (isLong) {
       const toggleBtn = bubble.createEl('button', {
-        text: `📖 展开全文 (${content.length} 字)`,
+        text: expanded ? '🔼 收起全文' : `📖 展开全文 (${content.length} 字)`,
         cls: 'atlas-chat-expand-btn'
       });
       toggleBtn.addEventListener('click', () => {
         expanded = !expanded;
+        if (expanded) this._expanded.add(msg.id); else this._expanded.delete(msg.id);
         textEl.textContent = expanded ? content : content.substring(0, 600) + '…';
         toggleBtn.textContent = expanded ? '🔼 收起全文' : `📖 展开全文 (${content.length} 字)`;
       });
@@ -3227,10 +3249,14 @@ class CafeChatView extends obsidian.ItemView {
     if (msg._pending) {
       footerRow.createEl('span', { text: '发送中…', cls: 'atlas-chat-pending' });
     }
+    if (writing) footerRow.createEl('span', { text: '回复中…', cls: 'atlas-chat-pending' });
+    const ended = { failed: '回复失败', canceled: '回复已取消', interrupted: '回复中断' }[state];
+    if (ended) footerRow.createEl('span', { text: `⚠️ ${ended}`, cls: 'atlas-chat-pending' });
     if (msg._failed) this._renderFailedParts(bubble, footerRow, msg._failed);
 
-    // Bring cat insights back into Obsidian: save as a pending note (crystallized after review) or append.
-    if (!isUser && content.trim().length > 0) {
+    // Bring cat insights back into Obsidian: save as a pending note (crystallized after review) or append — once the
+    // reply is no longer being written, so what is kept is what the cat said, not a part of it.
+    if (!isUser && !writing && content.trim().length > 0) {
       const actRow = bubble.createDiv('atlas-chat-msg-actions');
       const saveBtn = actRow.createEl('button', {
         text: '💎 存为待结晶笔记',
@@ -3295,18 +3321,36 @@ class CafeChatView extends obsidian.ItemView {
     this._messageArea.scrollTop = this._messageArea.scrollHeight;
   }
 
-  _startPolling() {
+  /**
+   * The conversation on screen is read again every 5 s, and every 1.5 s while a cat's reply is being written in it (see
+   * messagesKey) or right after a message was sent (_pollSoon). One chain of reads at a time: starting again, or
+   * stopping, ends the chain that was running, also when its read is still on its way.
+   */
+  _startPolling(firstIn = 5000) {
     this._stopPolling();
-    this._pollTimer = setInterval(async () => {
+    const run = this._pollRun = {};
+    const next = async () => {
       await this._pollNewMessages();
-    }, 5000);
+      if (this._pollRun !== run) return;
+      this._pollTimer = setTimeout(next, this._replying() ? 1500 : 5000);
+    };
+    this._pollTimer = setTimeout(next, firstIn);
   }
 
   _stopPolling() {
-    if (this._pollTimer) {
-      clearInterval(this._pollTimer);
-      this._pollTimer = null;
-    }
+    if (this._pollTimer) clearTimeout(this._pollTimer);
+    this._pollTimer = null;
+    this._pollRun = null;
+  }
+
+  /** A message was just sent (or the conversation changed): read again shortly, if reading is on. */
+  _pollSoon() {
+    if (this._pollRun) this._startPolling(1500);
+  }
+
+  /** A cat's reply is being written in the conversation on screen. */
+  _replying() {
+    return this._messages.some((m) => m.lifecycle?.kind === 'response' && m.lifecycle.status === 'processing');
   }
 
   async _pollNewMessages() {
@@ -3318,8 +3362,7 @@ class CafeChatView extends obsidian.ItemView {
       );
       if (!this._isCurrent(threadId, client)) return;
       const newMessages = (data && data.messages) || [];
-      if (newMessages.length !== this._messages.length ||
-          (newMessages.length > 0 && newMessages[newMessages.length - 1].id !== this._lastMessageId)) {
+      if (messagesKey(newMessages) !== this._messagesKey) {  // new messages, or a reply's words or state changed
         this._messages = newMessages;
         this._renderMessages();
       }

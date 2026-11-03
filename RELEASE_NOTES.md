@@ -1,3 +1,13 @@
+# 0.0.2 — directory metadata and build verification
+
+- Remove the optional author URL, which incorrectly pointed to this plugin's repository. The author name remains Clowder AI.
+- Include a standard npm lockfile for the dependency-free project, so the directory can attempt build verification with `npm ci`.
+- Clarify local Markdown-path enumeration and user-triggered, write-only clipboard access in the privacy documentation.
+
+The plugin's JavaScript, stylesheet, minimum supported Obsidian version, and runtime behavior are unchanged from 0.0.1. Existing CSS and behavior recommendations remain for review; this release does not claim artifact attestations or official review approval.
+
+Install the three individual assets from the same release: `main.js`, `manifest.json`, `styles.css`.
+
 # 0.0.1 — first public release
 
 The first public version starts at 0.0.1. Its feature code and stylesheet match the locally accepted 0.8.16 development implementation.

@@ -6,7 +6,7 @@
 
 ## 安装与开始使用
 
-这是首个公开版本，目前尚未在社区插件目录上架。手动安装时，将同一次 Release 的 `main.js`、`manifest.json`、`styles.css` 放入 `<vault>/.obsidian/plugins/clowder-atlas/`，在「设置 → 第三方插件」启用。更新文件后重新加载插件。
+当前为早期公开版本，社区插件目录审核正在进行中。手动安装时，将同一次 Release 的 `main.js`、`manifest.json`、`styles.css` 放入 `<vault>/.obsidian/plugins/clowder-atlas/`，在「设置 → 第三方插件」启用。更新文件后重新加载插件。
 
 本版本只声明支持桌面版 Obsidian **1.14.5+**；这是保守的验收基线，未验证更早版本和移动端。使用插件不需要 Node.js，只有从源码构建时需要 Node.js 22+。
 

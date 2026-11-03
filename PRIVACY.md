@@ -6,6 +6,8 @@ The connection starts disabled. Local graph, provenance, metadata curation, and 
 
 The plugin reads Markdown notes, frontmatter, and link caches to build its views. Explicit curation actions can update frontmatter, create notes, append quoted replies, replace a selected passage after confirmation, or generate Canvas files. A pending note inside the configured pending folder moves to the crystals folder when you crystallize it.
 
+The star chart enumerates Markdown file paths across the vault to show local links. Enumeration does not send those paths or note contents to an external service. The plugin writes a revision to the system clipboard only when you click a copy-revision button; it never reads the clipboard.
+
 The plugin uses Obsidian's vault and file-manager APIs for these writes. It does not open arbitrary files outside your vault. The desktop vault path is used locally to match the Cat Cafe thread list; that filtering does not add the path to an outgoing request.
 
 Plugin preferences, summoned companion IDs, failed message content and attachments, and revision request targets live in the plugin folder's `data.json`, without encryption. Failed sends remain until you resend, put them back into the composer, or delete them. Revision request records are retained for matching later replies and have no automatic expiry. The operating system, other plugins, and your backup/sync tools may have access to these files.

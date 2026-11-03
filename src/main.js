@@ -264,10 +264,12 @@ class CatCafeClient {
 
   /**
    * Open a new conversation in the cafe, under this vault's path so it is listed with the vault's other threads. The
-   * title is temporary (see seminarThreadTitle). The cafe accepts only the fields it knows, so nothing else is sent.
+   * title is temporary (see seminarThreadTitle). As in the cafe's own new-conversation form, `idempotencyKey` makes a
+   * repeat answer with the same conversation: a request sent again because its answer was lost opens nothing more.
+   * The cafe accepts only the fields it knows, so nothing else is sent.
    */
-  async createThread({ temporaryTitle, projectPath }) {
-    const body = { temporaryTitle };
+  async createThread({ temporaryTitle, projectPath, idempotencyKey }) {
+    const body = { temporaryTitle, idempotencyKey };
     if (projectPath) body.projectPath = projectPath;
     const thread = await this._fetch('/api/threads', { method: 'POST', body: JSON.stringify(body) });
     if (!thread?.id) throw new Error('猫咖没有返回新对话');
@@ -3411,7 +3413,7 @@ class SeminarModal extends obsidian.Modal {
     this._passage = opts.passage || null;  // the chat panel's 选段, attached instead of the whole note
     this._attachPassage = Boolean(this._passage);
     this._where = 'new';     // 'new': a conversation of its own; 'existing': the one picked in 3. 在哪开会
-    this._newThread = null;  // the conversation opened for this seminar; a retry after a failed send goes there again
+    this._opening = null;    // { cafe, key, thread }: the conversation this seminar opens on one cafe (see _open)
     this._busy = false;
   }
 
@@ -3521,7 +3523,8 @@ class SeminarModal extends obsidian.Modal {
       });
     }
 
-    this._renderWhere(contentEl);
+    this._whereBox = contentEl.createDiv('atlas-seminar-where-box');
+    this._renderWhere();
 
     // Start button + hint
     const startRow = contentEl.createDiv('atlas-seminar-start-row');
@@ -3537,12 +3540,18 @@ class SeminarModal extends obsidian.Modal {
 
   /**
    * 3. 在哪开会: a conversation of its own (the default), or one the vault already has — the one the chat panel shows,
-   * unless another is picked. While the vault has no conversation in the cafe, only a new one can be chosen.
+   * unless another is picked. While the vault has no conversation in the cafe, only a new one can be chosen. The list is
+   * the connected cafe's; _open lists them again if the address has changed since.
    */
-  _renderWhere(contentEl) {
-    const threads = this.plugin.cafeClient?.threads || [];
-    contentEl.createEl('label', { text: '3. 在哪开会', cls: 'atlas-seminar-label' });
-    const row = contentEl.createDiv({ cls: 'atlas-seminar-where', attr: { role: 'group', 'aria-label': '在哪开会' } });
+  _renderWhere() {
+    const client = this.plugin.cafeClient;
+    const threads = client?.threads || [];
+    const box = this._whereBox;
+    box.empty();
+    this._whereCafe = client?.baseUrl ?? null;
+    if (!threads.length) this._where = 'new';
+    box.createEl('label', { text: '3. 在哪开会', cls: 'atlas-seminar-label' });
+    const row = box.createDiv({ cls: 'atlas-seminar-where', attr: { role: 'group', 'aria-label': '在哪开会' } });
     this._whereBtns = [['new', '🆕 新开对话'], ['existing', '💬 用现有对话']].map(([where, text]) => {
       const b = row.createEl('button', { text, cls: 'atlas-btn atlas-seminar-where-btn', attr: { 'data-where': where } });
       b.addEventListener('click', () => { this._where = where; this._syncWhere(); });
@@ -3552,11 +3561,11 @@ class SeminarModal extends obsidian.Modal {
       this._whereBtns[1].disabled = true;
       this._whereBtns[1].title = '这个库在猫咖里还没有对话';
     }
-    this._threadSelect = contentEl.createEl('select', { cls: 'dropdown atlas-seminar-thread-select', attr: { 'aria-label': '选择现有对话' } });
+    this._threadSelect = box.createEl('select', { cls: 'dropdown atlas-seminar-thread-select', attr: { 'aria-label': '选择现有对话' } });
     for (const t of threads) this._threadSelect.createEl('option', { text: t.title || t.id, attr: { value: t.id } });
     const shown = this.plugin.currentChatThreadId();
     this._threadSelect.value = threads.some((t) => t.id === shown) ? shown : (threads[0]?.id ?? '');
-    this._whereHint = contentEl.createDiv('atlas-seminar-where-hint');
+    this._whereHint = box.createDiv('atlas-seminar-where-hint');
     this._syncWhere();
   }
 
@@ -3567,10 +3576,11 @@ class SeminarModal extends obsidian.Modal {
       b.setAttribute('aria-pressed', String(on));
     }
     this._threadSelect.style.display = this._where === 'existing' ? '' : 'none';
+    const opened = this._opening?.cafe === this.plugin.cafeClient?.baseUrl ? this._opening.thread : null;
     this._whereHint.textContent = this._where === 'existing'
       ? '发到选中的对话里，默认是右侧对话栏正在看的那个。'
-      : this._newThread
-        ? `新对话「${this._newThread.title || '🎓 研讨会'}」已经建好，再点开会会发到这里。`
+      : opened
+        ? `新对话「${opened.title}」已经建好，再点开会会发到这里。`
         : '新建一个对话来开会，先叫「🎓 研讨会 · …」；第一只发言的猫猫会按讨论内容给它起名。';
   }
 
@@ -3681,16 +3691,23 @@ class SeminarModal extends obsidian.Modal {
     content += `请参会猫猫从各自专长出发，就以上议题给出精炼、可直接整理进笔记的观点与建议。\n\n`;
     content += mentions.join('\n');
 
-    // Its conversation: the one picked in 3. 在哪开会, or a new one opened for it — once: a retry after a failed send
-    // goes to that same new conversation instead of opening another.
+    // Its conversation: the one picked in 3. 在哪开会, or one opened for it. A seminar opens one conversation per cafe:
+    // a retry after a failed send goes to it again, and its key makes the cafe answer with that same conversation if
+    // the first answer was lost. Conversations belong to the cafe they were listed or opened on: after the address has
+    // changed, the existing ones are listed again for the cafe now connected, and a new one is opened there.
     const opensNew = this._where !== 'existing';
-    if (opensNew && !this._newThread) {
+    if (!opensNew && this._whereCafe !== client.baseUrl) {
+      this._renderWhere();
+      throw new Error('猫咖地址换了，已按现在连接的猫咖重新列出对话，请再选一次在哪开会');
+    }
+    if (opensNew && this._opening?.cafe !== client.baseUrl) this._opening = { cafe: client.baseUrl, key: crypto.randomUUID(), thread: null };
+    if (opensNew && !this._opening.thread) {
       const temporaryTitle = seminarThreadTitle({ passage, noteName: this._attachNote && this._targetFile && !passage ? this._targetFile.basename : '', topic });
-      const thread = await client.createThread({ temporaryTitle, projectPath: this.app.vault.adapter.basePath || '' });
-      this._newThread = { ...thread, title: thread.title || temporaryTitle };  // the cafe may answer before it applies the title
+      const thread = await client.createThread({ temporaryTitle, projectPath: this.app.vault.adapter.basePath || '', idempotencyKey: this._opening.key });
+      this._opening.thread = { ...thread, title: thread.title || temporaryTitle };  // the cafe may answer before it applies the title
       this._syncWhere();
     }
-    const threadId = opensNew ? this._newThread.id : this._threadSelect.value;
+    const threadId = opensNew ? this._opening.thread.id : this._threadSelect.value;
     const body = { content, threadId };
     const revisionId = passage ? `rq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : null;
     if (revisionId) {  // a 修改稿 answering this seminar message, from any of its cats, can then replace this passage
@@ -3705,7 +3722,7 @@ class SeminarModal extends obsidian.Modal {
     if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
 
     new obsidian.Notice(opensNew
-      ? `🎓 研讨会已在新对话「${this._newThread.title}」开启！${catNames.join('、')} 正在右侧对话栏准备发言...`
+      ? `🎓 研讨会已在新对话「${this._opening.thread.title}」开启！${catNames.join('、')} 正在右侧对话栏准备发言...`
       : `🎓 研讨会已开启！${catNames.join('、')} 正在右侧对话栏准备发言...`);
     this.close();
     if (passage && this.plugin.chatPassage === this._passage) {  // the passage went with the seminar

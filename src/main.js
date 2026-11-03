@@ -1,0 +1,4928 @@
+'use strict';
+
+var obsidian = require('obsidian');
+
+// ═══════════════════════════════════════════════
+// Constants
+// ═══════════════════════════════════════════════
+const VIEW_TYPE_PROVENANCE_LENS = 'clowder-atlas-provenance-lens';
+const VIEW_TYPE_STAR_CHART = 'clowder-atlas-star-chart';
+const VIEW_TYPE_CAFE_CHAT = 'clowder-atlas-cafe-chat';
+const ATLAS_DIR_DEFAULT = '_atlas';
+// For people who don't have Clowder AI yet — the official README's Quick Start (desktop installer, or from source).
+const CLOWDER_RELEASES_URL = 'https://github.com/zts212653/clowder-ai/releases/latest';
+const CLOWDER_INSTALL_URL = 'https://github.com/zts212653/clowder-ai#quick-start';
+// Local ports where a Cat Cafe API usually listens (3004 is the Clowder AI default).
+const CAFE_SCAN_PORTS = [3004, 3000, 3001, 3005, 4000, 8080];
+const CAT_COLORS = {
+  opus:    { name: '布偶猫/宪宪', breed: '布偶猫', nickname: '宪宪', mention: '@opus',    color: '#6C8EBF', label: '布偶蓝', specialty: '深度思考 · 系统架构' },
+  astra:   { name: '缅因猫/砚砚', breed: '缅因猫', nickname: '砚砚', mention: '@砚砚',    color: '#D4A574', label: '缅因琥珀', specialty: '代码审计 · 质量守护' },
+  argon:   { name: '金渐层/小多子', breed: '金渐层', nickname: '小多子', mention: '@小多子', color: '#E8B84B', label: '暖金',   specialty: '视觉设计 · 体验打磨' },
+  kimi:    { name: '月野兔/水兵月', breed: '月野兔', nickname: '水兵月', mention: '@水兵月', color: '#B8C4D4', label: '月光银', specialty: '快速原型 · 实用路线' },
+  fish:    { name: '鱼儿',         breed: '深海鱼', nickname: '鱼儿',   mention: '@鱼儿',   color: '#5B9EA6', label: '深海青', specialty: '知识连接 · 发散思维' },
+  tabby:   { name: '狸花猫/小狸花', breed: '狸花猫', nickname: '小狸花', mention: '@小狸花', color: '#8C9E6E', label: '松针绿', specialty: '敏捷巡检 · 灵感捕手' },
+};
+const LUMINANCE_STATES = {
+  active:  { label: '恒星', icon: '★', cssClass: 'atlas-luminance-active',  hex: '#FFD700' },
+  warm:    { label: '温星', icon: '◆', cssClass: 'atlas-luminance-warm',    hex: '#DEB887' },
+  cool:    { label: '冷星', icon: '◇', cssClass: 'atlas-luminance-cool',    hex: '#A9B7C6' },
+  dormant: { label: '暗尘', icon: '·', cssClass: 'atlas-luminance-dormant', hex: '#5C6370' },
+};
+const MEMORY_TYPE_COLORS = {
+  semantic:   { label: '语义', hex: '#6C8EBF', icon: '🧠' },
+  episodic:   { label: '情景', hex: '#D4A574', icon: '🕐' },
+  procedural: { label: '程序', hex: '#6AAF6A', icon: '⚙️' },
+};
+const STATUS_LABELS = {
+  draft:        { label: '草稿', icon: '📝' },
+  pending:      { label: '待结晶', icon: '💎' },
+  crystallized: { label: '已结晶', icon: '✨' },
+  dormant:      { label: '休眠', icon: '💤' },
+};
+const CAT_SPECIALTIES = {
+  opus:  '深度思考 · 系统架构',
+  astra: '代码审计 · 质量守护',
+  argon: '视觉设计 · 体验打磨',
+  kimi:  '快速原型 · 实用路线',
+  fish:  '知识连接 · 发散思维',
+  tabby: '敏捷巡检 · 灵感捕手',
+};
+
+// ═══════════════════════════════════════════════
+// Default Settings
+// ═══════════════════════════════════════════════
+const DEFAULT_SETTINGS = {
+  atlasDir: ATLAS_DIR_DEFAULT,
+  canvasDir: '_atlas/canvases',
+  showRecallBadge: true,
+  enableLuminanceCSS: true,
+  enableGraphColors: true,
+  catCafeEnabled: false,
+  catCafeAddress: 'http://localhost:3004',
+  defaultMemoryType: 'semantic',
+  syncFrequency: 'manual',
+  debugLog: false,
+  summonedCats: [],
+  failedSends: [],  // sends that did not land, kept until resent, put back or deleted (see recordFailedSend)
+  revisionTargets: {},  // per cafe and thread: the passage that conversation is revising (see setRevisionTarget)
+};
+
+// ═══════════════════════════════════════════════
+// Passages — one selected part of a note, sent to the cats to discuss or revise
+// ═══════════════════════════════════════════════
+// The cafe takes up to 100,000 characters per message (clowder-ai messages.schema.ts); room is left for the request.
+const PASSAGE_MAX_CHARS = 90000;
+const CHAT_PLACEHOLDER = '和伴读猫猫聊笔记（默认唤醒在场猫猫，Enter 发送）…';
+
+/** 「第 3–5 行」 for a passage; a selection that ends at the start of a line does not count that line. */
+function passageLines(p) {
+  const last = p.to.ch === 0 && p.to.line > p.from.line ? p.to.line - 1 : p.to.line;
+  return last === p.from.line ? `第 ${p.from.line + 1} 行` : `第 ${p.from.line + 1}–${last + 1} 行`;
+}
+
+/** A fence longer than any run of backticks inside `text`, so the passage (and its revision) can be quoted whole. */
+function passageFence(text) {
+  const longest = Math.max(0, ...(String(text).match(/`+/g) || []).map((run) => run.length));
+  return '`'.repeat(Math.max(3, longest + 1));
+}
+
+/** The last 修改稿 block in a cat's reply (fenced with 3+ backticks or tildes), without its fences; null if none. */
+function extractRevision(content) {
+  const re = /(^|\n)(`{3,}|~{3,})[ \t]*修改稿[^\n]*\n([\s\S]*?)\n\2[ \t]*(?=\n|$)/g;
+  let match, last = null;
+  while ((match = re.exec(String(content || '')))) last = match[3];
+  return last;
+}
+
+/** Offset of {line, ch} in `text`, or -1 when that line is not there. */
+function offsetOfPos(text, pos) {
+  let offset = 0;
+  for (let line = 0; line < pos.line; line++) {
+    const nl = text.indexOf('\n', offset);
+    if (nl < 0) return -1;
+    offset = nl + 1;
+  }
+  return offset + pos.ch;
+}
+
+/** {line, ch} of `offset` in `text`. */
+function posOfOffset(text, offset) {
+  const before = text.slice(0, offset);
+  return { line: (before.match(/\n/g) || []).length, ch: offset - (before.lastIndexOf('\n') + 1) };
+}
+
+/** Where the passage to revise is in `content` now: still at its place, or the only place its text occurs. */
+function locatePassage(content, target) {
+  const expected = offsetOfPos(content, target.from);
+  if (expected >= 0 && content.startsWith(target.original, expected)) return { offset: expected };
+  const first = content.indexOf(target.original);
+  if (first < 0) return { offset: -1, reason: '原段落已经改动过，找不到原文' };
+  if (content.indexOf(target.original, first + 1) >= 0) return { offset: -1, reason: '原段落挪了位置，文中又有不止一处相同的文字，无法确定替换哪一处' };
+  return { offset: first };
+}
+
+/**
+ * The message that sends a passage: quoted whole, then what the user asks. Whether the cats discuss it or revise it is
+ * up to those words; a revised version goes in a 修改稿 block, so it can be put back in its place.
+ */
+function passageMessage(p, request) {
+  const fence = passageFence(p.text);
+  return `[选段 · 笔记「${p.basename}」${passageLines(p)}]\n\n${fence}\n${p.text}\n${fence}\n\n`
+    + `${request || '请看看这段，说说你的看法；觉得需要修改的话，也给出修改稿。'}\n\n`
+    + `（如果是要修改这段，请把改好的完整段落放进一个 ${fence}修改稿 代码块，说明写在代码块外；只是讨论的话，正常回答就好。）`;
+}
+
+/** How a passage message reads in the panel before the cafe has it, and when it failed: the passage named, then the words. */
+function passageShown(p, request) {
+  const head = `📌 选段 · 《${p.basename}》${passageLines(p)}`;
+  return request ? `${head}\n${request}` : head;
+}
+
+// ═══════════════════════════════════════════════
+// Cat Cafe Client — connects to local Cat Cafe Hub API
+// ═══════════════════════════════════════════════
+class CatCafeClient {
+  constructor(baseUrl) {
+    this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.connected = false;
+    this.cats = [];
+    this.threads = [];
+    this.lastError = null;
+    this._pollTimer = null;
+    this._reading = null;  // the read in flight (see connect)
+    this._queued = null;   // the one read waiting behind it
+    this.destroyed = false;
+  }
+
+  async _fetch(path, options = {}) {
+    const url = `${this.baseUrl}${path}`;
+    // Use Obsidian's requestUrl (goes through Node.js, bypasses CORS)
+    const method = (options.method || 'GET').toUpperCase();
+    const headers = {
+      'X-Cat-Cafe-User': 'default-user',
+      ...(options.headers || {}),
+    };
+    const reqOpts = { url, method, headers, throw: false };
+    if (options.body) {
+      reqOpts.body = options.body;
+      if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
+      reqOpts.contentType = headers['Content-Type'];
+    }
+    try {
+      const resp = await obsidian.requestUrl(reqOpts);
+      if (resp.status >= 400) {
+        let reason = '';
+        try { reason = typeof resp.json?.error === 'string' ? resp.json.error : ''; } catch {}
+        throw new Error(reason ? `${reason}（HTTP ${resp.status}）` : `HTTP ${resp.status}`);
+      }
+      return resp.json;
+    } catch (err) {
+      throw err;
+    }
+  }
+
+  /** True when `baseUrl` answers like a Cat Cafe: /api/health is ok and /api/cats lists cats (not just any "ok"). */
+  static async isCafe(baseUrl) {
+    const client = new CatCafeClient(baseUrl);
+    if (!(await client.checkHealth())) return false;
+    try {
+      const data = await client._fetch('/api/cats');
+      return Array.isArray(data?.cats);
+    } catch {
+      return false;
+    }
+  }
+
+  async checkHealth() {
+    try {
+      const data = await this._fetch('/api/health');
+      this.connected = data && data.status === 'ok';
+      this.lastError = null;
+      return this.connected;
+    } catch (err) {
+      this.connected = false;
+      this.lastError = err.message || 'Connection failed';
+      return false;
+    }
+  }
+
+  // fetchCats / fetchThreads only read; connect() stores what they return (see _read).
+  async fetchCats() {
+    try {
+      const data = await this._fetch('/api/cats');
+      const raw = (data && data.cats) || [];
+      // Deduplicate: API may return multiple model instances for the same cat personality
+      // Group by nickname (or name), keep the first occurrence per unique personality
+      const seen = new Map();
+      for (const cat of raw) {
+        const key = cat.nickname || cat.name || cat.id;
+        if (!seen.has(key)) {
+          seen.set(key, cat);
+        }
+      }
+      return [...seen.values()];
+    } catch (err) {
+      console.warn('Clowder Atlas: Failed to fetch cats:', err.message);
+      return this.cats;  // keep the last good list
+    }
+  }
+
+  async fetchThreads(projectPath) {
+    try {
+      const data = await this._fetch('/api/threads');
+      const allThreads = (data && data.threads) || [];
+      // Filter to threads for this project/vault
+      return projectPath
+        ? allThreads.filter(t => t.projectPath === projectPath)
+        : allThreads;
+    } catch (err) {
+      console.warn('Clowder Atlas: Failed to fetch threads:', err.message);
+      return this.threads;  // keep the last good list
+    }
+  }
+
+  async fetchThreadDetail(threadId) {
+    try {
+      return await this._fetch(`/api/threads/${threadId}`);
+    } catch (err) {
+      console.warn('Clowder Atlas: Failed to fetch thread detail:', err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Re-read health, cats and threads. One read runs at a time per client: a call made while one is running (the poll
+   * and「↻ 刷新」share this path) gets a fresh read right after it, shared by all calls made in between, so an older
+   * answer can never land on top of a newer one.
+   */
+  connect(projectPath) {
+    if (this._queued) return this._queued;
+    if (!this._reading) {
+      this._reading = this._read(projectPath).finally(() => { this._reading = null; });
+      return this._reading;
+    }
+    this._queued = this._reading.catch(() => {}).then(() => {
+      this._queued = null;
+      return this.connect(projectPath);
+    });
+    return this._queued;
+  }
+
+  /** One read, stored all at once; a client destroyed meanwhile (disconnected or replaced) keeps none of it. */
+  async _read(projectPath) {
+    if (this.destroyed) return false;  // a read queued behind one that outlived the client never goes out
+    let ok = false, error = null;
+    try {
+      const data = await this._fetch('/api/health');
+      ok = !!data && data.status === 'ok';
+    } catch (err) {
+      error = err.message || 'Connection failed';
+    }
+    const [cats, threads] = ok && !this.destroyed
+      ? await Promise.all([this.fetchCats(), this.fetchThreads(projectPath)])
+      : [this.cats, this.threads];
+    if (this.destroyed) return false;
+    this.connected = ok;
+    this.lastError = error;
+    this.cats = cats;
+    this.threads = threads;
+    return ok;
+  }
+
+  /** What the panels show from the cafe: connection, cats and threads. Polling reports when this changes. */
+  rosterKey() {
+    return JSON.stringify([this.connected, this.cats.map((c) => [c.id, c.nickname || c.name]), this.threads.map((t) => [t.id, t.title])]);
+  }
+
+  startPolling(projectPath, intervalMs = 30000, onChange = null) {
+    this.stopPolling();
+    this._pollTimer = setInterval(async () => {
+      const before = this.rosterKey();
+      await this.connect(projectPath);
+      if (!this.destroyed && onChange && this.rosterKey() !== before) onChange();
+    }, intervalMs);
+  }
+
+  stopPolling() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
+  }
+
+  getHubUrl() {
+    // Web UI runs on port 3003 (one below the API default of 3004)
+    const apiPort = parseInt(new URL(this.baseUrl).port, 10) || 3004;
+    const webPort = apiPort - 1;
+    const origin = new URL(this.baseUrl);
+    origin.port = String(webPort);
+    return origin.origin;
+  }
+
+  /** Get full avatar image URL for a cat */
+  getAvatarUrl(cat) {
+    if (!cat || !cat.avatar) return null;
+    return `${this.getHubUrl()}${cat.avatar}`;
+  }
+
+  /** Find a cat by id and return its info */
+  findCat(catId) {
+    return this.cats.find(c => c.id === catId) || null;
+  }
+
+  destroy() {
+    this.destroyed = true;  // reads still in flight finish without touching this client (see _read)
+    this.stopPolling();
+    this.connected = false;
+    this.cats = [];
+    this.threads = [];
+  }
+}
+
+// ═══════════════════════════════════════════════
+// 3D Avatar Renderer — shared between all views
+// ═══════════════════════════════════════════════
+/**
+ * Renders a 3D-style interactive cat avatar with glow ring, depth, and status.
+ * @param {HTMLElement} parent - container to append to
+ * @param {Object} cat - cat data from API
+ * @param {CatCafeClient|null} client - for resolving avatar URL
+ * @param {string} size - 'cafe' (42px), 'chat' (28px), 'author' (34px), 'mini' (20px)
+ */
+function renderCatAvatar3D(parent, cat, client, size) {
+  const color = (cat?.color?.primary) || cat?.color || '#C87D55';
+  const sizeClass = `atlas-avatar-3d-${size || 'cafe'}`;
+  const wrap = parent.createDiv(`atlas-avatar-3d ${sizeClass}`);
+  wrap.style.setProperty('--avatar-accent', color);
+
+  // Outer glow ring (animated gradient border)
+  const ring = wrap.createDiv('atlas-avatar-ring');
+
+  // Inner photo container with depth
+  const inner = wrap.createDiv('atlas-avatar-inner');
+
+  const avatarUrl = client?.getAvatarUrl?.(cat);
+  if (avatarUrl) {
+    const img = inner.createEl('img', {
+      cls: 'atlas-avatar-photo',
+      attr: { src: avatarUrl, alt: cat?.nickname || cat?.name || '', draggable: 'false' }
+    });
+    img.addEventListener('error', () => {
+      img.remove();
+      inner.createEl('span', { text: '🐾', cls: 'atlas-avatar-emoji' });
+    });
+  } else {
+    inner.createEl('span', { text: '🐾', cls: 'atlas-avatar-emoji' });
+  }
+
+  // Online status dot (green pulse)
+  wrap.createDiv('atlas-avatar-status-dot');
+  return wrap;
+}
+
+// ═══════════════════════════════════════════════
+// Spec Parser — reads Atlas fields from frontmatter
+// ═══════════════════════════════════════════════
+class SpecParser {
+  /**
+   * Parse a file's frontmatter into a structured Atlas note object.
+   * Returns null if the file has no Atlas-relevant fields.
+   */
+  static parse(frontmatter) {
+    if (!frontmatter) return null;
+
+    // Detect Atlas level
+    const hasVersion = !!frontmatter.atlas_version;
+    const hasId = !!frontmatter.atlas_id;
+    const hasL1 = !!(frontmatter.atlas_authors || frontmatter.atlas_source);
+    const hasL1Plus = !!(frontmatter.atlas_author_details || frontmatter.atlas_evidence);
+    const hasLuminance = !!frontmatter.luminance;
+
+    // Legacy compat: old notes with only authors/type/status are also relevant
+    const hasLegacy = !!(frontmatter.authors || frontmatter.status);
+    const hasPaper = !!(frontmatter.paper_arxiv || (frontmatter.type === 'paper'));
+
+    // At minimum we need memory_type or atlas_version or L1 fields or legacy fields
+    if (!frontmatter.memory_type && !hasVersion && !hasL1 && !hasLegacy && !hasPaper) return null;
+
+    let level = 'L0';
+    if (hasL1Plus) level = 'L1+';
+    else if (hasL1) level = 'L1';
+    if (hasLuminance) level = 'L2';
+
+    // Diagnostics for unsupported versions
+    const diagnostics = [];
+    if (frontmatter.atlas_version && frontmatter.atlas_version !== 'v1') {
+      diagnostics.push(`未知 Spec 版本: ${frontmatter.atlas_version}（仅支持 v1）`);
+    }
+
+    // Validate luminance value
+    const validLuminance = ['active', 'warm', 'cool', 'dormant'];
+    const luminance = validLuminance.includes(frontmatter.luminance) ? frontmatter.luminance : null;
+    if (frontmatter.luminance && !luminance) {
+      diagnostics.push(`未知 luminance 值: ${frontmatter.luminance}`);
+    }
+
+    return {
+      level,
+      diagnostics,
+      atlas_version: frontmatter.atlas_version || null,
+      atlas_id: frontmatter.atlas_id || null,
+      memory_type: frontmatter.memory_type || 'unknown',
+      memory_status: frontmatter.memory_status || 'draft',
+      title: frontmatter.title || null,
+      // L1 flat fields
+      atlas_authors: SpecParser._toArray(frontmatter.atlas_authors),
+      atlas_source: frontmatter.atlas_source || null,
+      atlas_source_ref: frontmatter.atlas_source_ref || null,
+      // L1+ structured — filter nulls
+      atlas_author_details: SpecParser._cleanObjectArray(frontmatter.atlas_author_details),
+      atlas_evidence: SpecParser._cleanObjectArray(frontmatter.atlas_evidence),
+      // L2
+      luminance: luminance,
+      luminance_pinned: !!frontmatter.luminance_pinned,
+      // Related — parse wikilinks
+      related: SpecParser._toArray(frontmatter.related),
+      tags: SpecParser._toArray(frontmatter.tags),
+      // Legacy compat — read old format for display
+      legacy_authors: SpecParser._cleanObjectArray(frontmatter.authors),
+      legacy_status: frontmatter.status || null,
+      // Paper-specific (both new and legacy)
+      paper_authors: SpecParser._toArray(frontmatter.paper_authors || frontmatter.paper_authors),
+      paper_arxiv: frontmatter.paper_arxiv || frontmatter.arxiv || null,
+      paper_venue: frontmatter.paper_venue || frontmatter.venue || null,
+      paper_date: frontmatter.paper_date || null,
+      type: frontmatter.type || null,
+    };
+  }
+
+  static _toArray(val) {
+    if (!val) return [];
+    if (Array.isArray(val)) return val.filter(v => v != null);
+    if (typeof val === 'string') return [val];
+    return [];
+  }
+
+  /** Filter null/undefined from object arrays, keeping only valid objects */
+  static _cleanObjectArray(val) {
+    if (!val) return [];
+    if (!Array.isArray(val)) {
+      // Could be a single object (legacy authors format)
+      if (typeof val === 'object') return [val];
+      return [];
+    }
+    return val.filter(item => item != null && typeof item === 'object');
+  }
+
+  /**
+   * Parse a wikilink string like "[[target]]" or "[[target|alias]]" or bare "target"
+   * Returns { target, display }
+   */
+  static parseWikilink(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    const match = raw.match(/^\[\[([^\]|]+)(?:\|([^\]]*))?\]\]$/);
+    if (match) {
+      return { target: match[1].trim(), display: (match[2] || match[1]).trim() };
+    }
+    // Bare string — treat as target
+    return { target: raw.trim(), display: raw.trim() };
+  }
+
+  /**
+   * Resolve a full cat profile (color, breed, specialty, @mention) from a cat object or string.
+   */
+  static resolveCatProfile(catOrName) {
+    if (!catOrName) return null;
+    const rawStr = typeof catOrName === 'string'
+      ? catOrName
+      : [catOrName.id, catOrName.nickname, catOrName.displayName, catOrName.name, catOrName.breedId].filter(Boolean).join(' ');
+    const lower = rawStr.toLowerCase();
+
+    // Direct Cat Cafe ID mapping
+    if (lower.includes('cat-xooblf7l') || lower.includes('缅因') || lower.includes('砚砚') || lower.includes('astra')) {
+      return CAT_COLORS.astra;
+    }
+    if (lower.includes('cat-gpy5qnmg') || lower.includes('金渐层') || lower.includes('小多子') || lower.includes('argon')) {
+      return CAT_COLORS.argon;
+    }
+    if (lower.includes('cat-0gs0urog') || lower.includes('月野兔') || lower.includes('水兵月') || lower.includes('kimi')) {
+      return CAT_COLORS.kimi;
+    }
+    if (lower.includes('布偶') || lower.includes('宪宪') || lower.includes('opus')) {
+      return CAT_COLORS.opus;
+    }
+    if (lower.includes('鱼儿') || lower.includes('深海') || lower.includes('fish')) {
+      return CAT_COLORS.fish;
+    }
+    if (lower.includes('狸花') || lower.includes('小狸花') || lower.includes('tabby')) {
+      return CAT_COLORS.tabby;
+    }
+    for (const [key, info] of Object.entries(CAT_COLORS)) {
+      if (lower.includes(key) || lower.includes(info.name.toLowerCase())) {
+        return info;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Resolve a cat color from author name or id.
+   */
+  static resolveCatColor(nameOrId) {
+    return SpecParser.resolveCatProfile(nameOrId);
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Provenance Lens View
+// ═══════════════════════════════════════════════
+class ProvenanceLensView extends obsidian.ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this.currentFile = null;
+    this.currentNote = null;
+  }
+
+  getViewType() { return VIEW_TYPE_PROVENANCE_LENS; }
+  getDisplayText() { return 'Provenance Lens'; }
+  getIcon() { return 'eye'; }
+
+  async onOpen() {
+    const container = this.containerEl.children[1];
+    container.empty();
+    container.addClass('atlas-provenance-lens');
+
+    // Initial state — show welcome
+    this.renderWelcome(container);
+
+    // Listen for active file changes
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', () => {
+        this.updateForActiveFile();
+      })
+    );
+    this.registerEvent(
+      this.app.metadataCache.on('changed', (file) => {
+        if (this.currentFile && file.path === this.currentFile.path) {
+          this.updateForActiveFile();
+        }
+      })
+    );
+
+    // Initial update
+    this.updateForActiveFile();
+  }
+
+  async onClose() {
+    // Cleanup
+  }
+
+  refresh() {
+    this.updateForActiveFile();
+  }
+
+  updateForActiveFile() {
+    const file = this.app.workspace.getActiveFile();
+    if (!file || file.extension !== 'md') {
+      this.currentFile = null;
+      this.currentNote = null;
+      this.renderNoFile();
+      return;
+    }
+
+    this.currentFile = file;
+    const cache = this.app.metadataCache.getFileCache(file);
+    const frontmatter = cache?.frontmatter;
+    this.currentNote = SpecParser.parse(frontmatter);
+
+    const container = this.containerEl.children[1];
+    container.empty();
+    container.addClass('atlas-provenance-lens');
+
+    if (!this.currentNote) {
+      this.renderUnindexed(container, file);
+    } else {
+      this.renderNote(container, file, this.currentNote);
+    }
+  }
+
+  // The lens is about the note itself; the companion strip and the study pod live in the chat panel only.
+  _renderTopBar(container) {
+    this.plugin.renderUnifiedNavBar(container, 'lens');
+  }
+
+  async _quickEnrollFile(file, memoryType) {
+    const now = this.plugin._localDate();
+    const uuid = this.plugin._generateUUID();
+    try {
+      await this.app.fileManager.processFrontMatter(file, (fm) => {
+        if (!fm.atlas_version) fm.atlas_version = 'v1';
+        if (!fm.atlas_id) fm.atlas_id = uuid;
+        fm.memory_type = memoryType;
+        if (!fm.memory_status) fm.memory_status = 'draft';
+        if (!fm.atlas_source) fm.atlas_source = 'manual';
+        if (!fm.created) fm.created = now;
+        fm.updated = now;
+      });
+      const typeLabel = MEMORY_TYPE_COLORS[memoryType]?.label || memoryType;
+      new obsidian.Notice(`✨ 已将「${file.basename}」点亮为${typeLabel}记忆`);
+      this.plugin.updateStatusBar();
+    } catch (err) {
+      new obsidian.Notice('⚠️ 无法自动写入 Frontmatter，请检查笔记头部 YAML 格式');
+    }
+  }
+
+  async _quickUpdateStatus(file, newStatus) {
+    const now = this.plugin._localDate();
+    try {
+      await this.app.fileManager.processFrontMatter(file, (fm) => {
+        fm.memory_status = newStatus;
+        if (newStatus === 'crystallized' && !fm.luminance) {
+          fm.luminance = 'warm';
+        }
+        fm.updated = now;
+      });
+    } catch (err) {
+      new obsidian.Notice('⚠️ 更新状态失败，请检查 YAML 格式');
+      return;
+    }
+    let notice = '✨ 已点亮为「已结晶」记忆并入图';
+    if (newStatus === 'crystallized') {
+      try {
+        const dest = await this.plugin.movePendingToCrystals(file);
+        if (dest) notice = `✨ 已点亮结晶，并从待结晶目录移入 ${dest}`;
+      } catch (err) {
+        notice = `✨ 已点亮结晶，但没能移入 crystals 目录：${err?.message || err}`;
+      }
+    }
+    new obsidian.Notice(notice);
+    this.plugin.updateStatusBar();
+  }
+
+  async _togglePinLuminance(file, currentPinned) {
+    try {
+      await this.app.fileManager.processFrontMatter(file, (fm) => {
+        fm.luminance_pinned = !currentPinned;
+        if (!currentPinned) {
+          fm.luminance = 'active';
+        }
+      });
+      new obsidian.Notice(!currentPinned ? '📌 已锁定为恒星（免于时间衰减）' : '已取消恒星锁定');
+    } catch (err) {
+      new obsidian.Notice('⚠️ 更新光泽度锁定失败');
+    }
+  }
+
+  renderWelcome(container) {
+    this._renderTopBar(container);
+    const welcome = container.createDiv('atlas-lens-welcome');
+    welcome.createDiv({ text: '🐾', cls: 'atlas-welcome-emblem' });
+    welcome.createEl('h3', { text: '欢迎来到猫咖知识花园 🌿' });
+    welcome.createEl('p', {
+      text: '点开任意一篇笔记让伴读猫猫陪你研读，或直接潜入星空、召集研讨会',
+      cls: 'atlas-lens-subtitle'
+    });
+
+    const actions = welcome.createDiv('atlas-lens-actions');
+    const starBtn = actions.createEl('button', { text: '✦ 打开 3D 记忆星图', cls: 'atlas-btn atlas-btn-primary' });
+    starBtn.addEventListener('click', () => this.plugin.openStarChart());
+    const seminarBtn = actions.createEl('button', { text: '🎓 组织多猫研讨会', cls: 'atlas-btn' });
+    seminarBtn.addEventListener('click', () => this.plugin.openSeminarModal());
+    const canvasBtn = actions.createEl('button', { text: '🎨 生成 2D 知识画布 (.canvas)', cls: 'atlas-btn' });
+    canvasBtn.addEventListener('click', () => this.plugin.generateCanvas());
+
+    // ── Live Cat Cafe Panel (when connected) ──
+    if (this.plugin.isCafeConnected) {
+      const client = this.plugin.cafeClient;
+      this._renderCafePanel(container, client);
+    } else if (this.plugin.settings.catCafeEnabled) {
+      const retryCard = container.createDiv('atlas-cafe-offline');
+      retryCard.createEl('p', { text: '⚠️ 猫咖 Hub 暂时未响应' });
+      const retryBtn = retryCard.createEl('button', { text: '🔄 重新连接', cls: 'atlas-btn' });
+      retryBtn.addEventListener('click', () => this.plugin._initCafeConnection());
+    }
+  }
+
+  _renderCafePanel(container, client) {
+    const panel = container.createDiv('atlas-cafe-panel');
+    panel.createEl('h4', { text: '☕ 猫咖实况 · 点击猫猫召唤伴读', cls: 'atlas-cafe-title' });
+
+    // Cat roster
+    if (client.cats.length > 0) {
+      const catSection = panel.createDiv('atlas-cafe-cats');
+      const familyCats = client.cats.filter(c =>
+        c.nickname || ['opus', 'sonnet', 'fable-5', 'cat-xooblf7l', 'cat-0gs0urog', 'cat-gpy5qnmg'].includes(c.id)
+      );
+      const displayCats = familyCats.length > 0 ? familyCats.slice(0, 7) : client.cats.slice(0, 7);
+
+      for (const cat of displayCats) {
+        const isSummoned = this.plugin.isCatSummoned(cat.id);
+        const profile = SpecParser.resolveCatProfile(cat);
+        const row = catSection.createDiv(`atlas-cafe-cat-row ${isSummoned ? 'is-summoned' : ''}`);
+        renderCatAvatar3D(row, cat, client, 'cafe');
+        const info = row.createDiv('atlas-cafe-cat-info');
+        const displayName = cat.nickname || profile?.nickname || cat.displayName || cat.name || cat.id;
+        info.createEl('span', { text: displayName, cls: 'atlas-cafe-cat-name' });
+        const sub = profile ? `${profile.breed} · ${profile.specialty}` : (cat.name || '');
+        if (sub) info.createEl('span', { text: sub, cls: 'atlas-cafe-cat-sub' });
+
+        const actionBtn = row.createEl('button', {
+          text: isSummoned ? '💬 找TA' : '✨ 召唤',
+          cls: `atlas-Row-summon-pill ${isSummoned ? 'is-active' : ''}`,
+        });
+        actionBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (!isSummoned) {
+            this.plugin.toggleSummonCat(cat.id);
+          } else {
+            this.plugin.openCafeChat({ targetCatId: cat.id });
+          }
+        });
+        row.addEventListener('click', () => {
+          this.plugin.toggleSummonCat(cat.id);
+        });
+      }
+    }
+
+    // Active threads for this vault
+    if (client.threads.length > 0) {
+      const threadSection = panel.createDiv('atlas-cafe-threads');
+      threadSection.createEl('h5', { text: '📋 活跃对话（点击在右侧栏打开）' });
+      for (const thread of client.threads.slice(0, 5)) {
+        const row = threadSection.createDiv('atlas-cafe-thread-row');
+        row.createEl('span', { text: thread.title || thread.id, cls: 'atlas-cafe-thread-title' });
+        const participants = thread.participants || [];
+        if (participants.length > 0) {
+          const avatarRow = row.createDiv('atlas-cafe-thread-avatars');
+          for (const pid of participants.slice(0, 5)) {
+            const pCat = client.cats.find(c => c.id === pid);
+            const pUrl = client.getAvatarUrl(pCat);
+            if (pUrl) {
+              const pImg = avatarRow.createEl('img', {
+                cls: 'atlas-thread-participant-avatar',
+                attr: { src: pUrl, alt: pCat?.nickname || pid, title: pCat?.nickname || pCat?.name || pid }
+              });
+              pImg.addEventListener('error', () => { pImg.style.display = 'none'; });
+            } else {
+              const pDot = avatarRow.createEl('span', {
+                cls: 'atlas-thread-participant-dot',
+                attr: { title: pCat?.nickname || pid }
+              });
+              pDot.style.backgroundColor = pCat?.color?.primary || '#C87D55';
+            }
+          }
+          if (participants.length > 5) {
+            avatarRow.createEl('span', { text: `+${participants.length - 5}`, cls: 'atlas-thread-more' });
+          }
+        }
+        const ago = thread.lastActiveAt ? this._timeAgo(thread.lastActiveAt) : '';
+        if (ago) row.createEl('span', { text: ago, cls: 'atlas-cafe-thread-ago' });
+        row.addEventListener('click', () => {
+          this.plugin.openCafeChat({ threadId: thread.id });
+        });
+      }
+    }
+
+    // Open in-app Chat or external Hub
+    const btnRow = panel.createDiv('atlas-cafe-btn-row');
+    const chatBtn = btnRow.createEl('button', {
+      text: '💬 进入插件内猫咖对话',
+      cls: 'atlas-btn atlas-btn-primary'
+    });
+    chatBtn.addEventListener('click', () => this.plugin.openCafeChat());
+
+    const hubBtn = btnRow.createEl('button', {
+      text: '↗ 浏览器打开 Hub',
+      cls: 'atlas-btn'
+    });
+    hubBtn.addEventListener('click', () => window.open(client.getHubUrl()));
+  }
+
+  _timeAgo(timestamp) {
+    const diff = Date.now() - timestamp;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return '刚刚';
+    if (mins < 60) return `${mins} 分钟前`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours} 小时前`;
+    const days = Math.floor(hours / 24);
+    return `${days} 天前`;
+  }
+
+  renderNoFile(container) {
+    if (!container) {
+      container = this.containerEl.children[1];
+      container.empty();
+      container.addClass('atlas-provenance-lens');
+    }
+    this.renderWelcome(container);
+  }
+
+  renderUnindexed(container, file) {
+    this._renderTopBar(container);
+
+    const header = container.createDiv('atlas-lens-header');
+    header.createEl('h4', { text: file.basename });
+    header.createDiv({ text: file.path, cls: 'atlas-header-path' });
+
+    // ── Backlinks & Outlinks — useful for ANY note ──
+    const backlinks = this._getBacklinkFiles(file);
+    const outlinks = this._getOutlinkFiles(file);
+    const backlinkCount = backlinks.length;
+    const outlinkCount = outlinks.length;
+
+    // Activity level based on connections
+    const activityLevel = backlinkCount >= 5 ? 'active' : backlinkCount >= 2 ? 'warm' : backlinkCount >= 1 ? 'cool' : 'dormant';
+    const lumState = LUMINANCE_STATES[activityLevel];
+
+    const badges = header.createDiv('atlas-lens-badges');
+    badges.createEl('span', {
+      text: '🌱 普通笔记 · 未入籍',
+      cls: 'atlas-badge atlas-status-dormant'
+    });
+    badges.createEl('span', {
+      text: `${lumState.icon} 双链热度: ${lumState.label}`,
+      cls: `atlas-badge atlas-status-${activityLevel === 'active' ? 'crystallized' : activityLevel === 'warm' ? 'pending' : 'draft'}`
+    });
+    badges.createEl('span', {
+      text: `📎 ${backlinkCount} 入链`,
+      cls: 'atlas-badge atlas-level-badge'
+    });
+
+    // ── One-Click Enroll Card (零摩擦点亮入图) ──
+    const enrollCard = container.createDiv('atlas-enroll-card');
+    enrollCard.createDiv({ text: '✨ 赋予这篇笔记记忆身份', cls: 'atlas-enroll-title' });
+    enrollCard.createDiv({
+      text: '无需手填 YAML，点击下方类型即可将此笔记安全点亮并纳入 Atlas 星图（原有内容 100% 保留）：',
+      cls: 'atlas-enroll-desc'
+    });
+    const btnGroup = enrollCard.createDiv('atlas-enroll-btn-group');
+    [
+      { key: 'semantic', icon: '🧠', label: '语义记忆' },
+      { key: 'episodic', icon: '🕐', label: '情景记忆' },
+      { key: 'procedural', icon: '⚙️', label: '程序记忆' },
+    ].forEach((item) => {
+      const btn = btnGroup.createEl('button', { cls: 'atlas-enroll-btn' });
+      btn.createEl('span', { text: item.icon, attr: { style: 'font-size:15px;' } });
+      btn.createEl('span', { text: item.label });
+      btn.addEventListener('click', () => this._quickEnrollFile(file, item.key));
+    });
+
+    // Luminance bar
+    const lumSection = container.createDiv('atlas-lens-section');
+    lumSection.createEl('h5', { text: '✦ 自然连接光泽度' });
+    const lumRow = lumSection.createDiv('atlas-luminance-row');
+    const bar = lumRow.createDiv('atlas-luminance-bar');
+    const fill = bar.createDiv('atlas-luminance-bar-fill');
+    const percent = activityLevel === 'active' ? 90 : activityLevel === 'warm' ? 60 : activityLevel === 'cool' ? 30 : 10;
+    fill.style.width = percent + '%';
+    fill.style.backgroundColor = lumState.hex;
+    const metrics = lumSection.createDiv('atlas-luminance-metrics');
+    metrics.createEl('span', { text: `被 ${backlinkCount} 篇笔记引用 · 引用了 ${outlinkCount} 篇`, cls: 'atlas-metric' });
+    metrics.createEl('span', { text: '独立模式本地图谱计算', cls: 'atlas-metric-source' });
+
+    // ── Backlinks section ──
+    if (backlinkCount > 0) {
+      const blSection = container.createDiv('atlas-lens-section');
+      blSection.createEl('h5', { text: `🔗 谁引用了这篇 (${backlinkCount})` });
+      const list = blSection.createEl('ul', { cls: 'atlas-related-list' });
+      for (const bl of backlinks.slice(0, 10)) {
+        const li = list.createEl('li');
+        const link = li.createEl('a', { text: `← ${bl.basename}`, cls: 'internal-link' });
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.app.workspace.openLinkText(bl.path, file.path);
+        });
+      }
+      if (backlinkCount > 10) {
+        blSection.createEl('p', { text: `...还有 ${backlinkCount - 10} 篇笔记也引用了它`, cls: 'atlas-empty-hint' });
+      }
+    }
+
+    // ── Outlinks section ──
+    if (outlinkCount > 0) {
+      const olSection = container.createDiv('atlas-lens-section');
+      olSection.createEl('h5', { text: `↗ 这篇引用了 (${outlinkCount})` });
+      const list = olSection.createEl('ul', { cls: 'atlas-related-list' });
+      for (const ol of outlinks.slice(0, 10)) {
+        const li = list.createEl('li');
+        const link = li.createEl('a', { text: `→ ${ol.basename}`, cls: 'internal-link' });
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.app.workspace.openLinkText(ol.path, file.path);
+        });
+      }
+    }
+
+    // ── File info ──
+    if (file.stat?.mtime) {
+      const meta = container.createDiv('atlas-lens-section');
+      meta.createEl('h5', { text: '🗂 笔记档案' });
+      const table = meta.createEl('table', { cls: 'atlas-lens-table' });
+      this._addTableRow(table, '最后修改', new Date(file.stat.mtime).toLocaleDateString('zh-CN'));
+      this._addTableRow(table, '体积', this._formatSize(file.stat.size || 0));
+    }
+  }
+
+  renderNote(container, file, note) {
+    this._renderTopBar(container);
+
+    // Header with title and status
+    const header = container.createDiv('atlas-lens-header');
+    header.createEl('h4', { text: note.title || file.basename });
+    header.createDiv({ text: file.path, cls: 'atlas-header-path' });
+
+    // Status + Level badges
+    const badges = header.createDiv('atlas-lens-badges');
+    const statusInfo = STATUS_LABELS[note.memory_status] || STATUS_LABELS.draft;
+    badges.createEl('span', {
+      text: `${statusInfo.icon} ${statusInfo.label}`,
+      cls: `atlas-badge atlas-status-${note.memory_status}`
+    });
+
+    const typeInfo = MEMORY_TYPE_COLORS[note.memory_type];
+    if (typeInfo) {
+      const typeBadge = badges.createEl('span', {
+        text: `${typeInfo.icon} ${typeInfo.label}`,
+        cls: 'atlas-badge atlas-type-badge'
+      });
+      typeBadge.style.borderColor = typeInfo.hex;
+      typeBadge.style.color = typeInfo.hex;
+    }
+
+    badges.createEl('span', { text: note.level, cls: 'atlas-badge atlas-level-badge' });
+
+    // Interactive Quick-Crystallize button if still draft/pending
+    if (note.memory_status !== 'crystallized') {
+      const cryBtn = badges.createEl('button', {
+        text: '✨ 点亮结晶',
+        cls: 'atlas-quick-action-pill',
+        attr: { title: '人工确认后升格为已结晶；待结晶目录里的笔记会移入 crystals' }
+      });
+      cryBtn.addEventListener('click', () => this._quickUpdateStatus(file, 'crystallized'));
+    }
+
+    // ── Section: Diagnostics ──
+    if (note.diagnostics && note.diagnostics.length > 0) {
+      const diagSection = container.createDiv('atlas-lens-section atlas-lens-diagnostics');
+      for (const d of note.diagnostics) {
+        diagSection.createEl('p', { text: `⚠️ ${d}`, cls: 'atlas-diagnostic-warning' });
+      }
+    }
+
+    // ── Section: Authors (共创基因) ──
+    if (note.atlas_authors.length > 0 || note.atlas_author_details.length > 0 || note.legacy_authors.length > 0) {
+      this._renderAuthors(container, note);
+    }
+
+    // ── Section: Evidence Chain (证据链) ──
+    if (note.atlas_evidence.length > 0) {
+      this._renderEvidence(container, note);
+    }
+
+    // ── Section: Luminance (记忆光泽度) ──
+    this._renderLuminance(container, note, file);
+
+    // ── Section: Source info ──
+    if (note.atlas_source) {
+      this._renderSource(container, note);
+    }
+
+    // ── Section: Paper info ──
+    if (note.type === 'paper' || note.paper_arxiv || note.paper_authors.length > 0) {
+      this._renderPaperInfo(container, note);
+    }
+
+    // ── Section: Related notes ──
+    if (note.related) {
+      this._renderRelated(container, note, file);
+    }
+
+    // ── Section: Identity ──
+    this._renderIdentity(container, note);
+  }
+
+  _renderAuthors(container, note) {
+    const section = container.createDiv('atlas-lens-section');
+    section.createEl('h5', { text: '🐾 共创基因' });
+    const listWrap = section.createDiv('atlas-author-list');
+
+    // Show L1+ details if available
+    const details = note.atlas_author_details;
+    const detailNames = new Set(details.map(a => String(a.name || a.id || '').toLowerCase()));
+
+    if (details.length > 0) {
+      for (const author of details) {
+        this._renderAuthorRow(listWrap, author.name || author.id, author.color, author.role);
+      }
+    }
+
+    // Show L1 authors not present in L1+ details (conflict indicator)
+    for (const name of note.atlas_authors) {
+      if (!detailNames.has(String(name).toLowerCase())) {
+        this._renderAuthorRow(listWrap, name, null, null);
+        if (details.length > 0) {
+          section.createEl('p', {
+            text: `⚠ "${name}" 在 atlas_authors 中但不在 atlas_author_details 中`,
+            cls: 'atlas-conflict-hint'
+          });
+        }
+      }
+    }
+
+    // Show legacy authors (old format)
+    if (note.legacy_authors.length > 0 && note.atlas_authors.length === 0 && details.length === 0) {
+      section.createEl('p', { text: '兼容旧版共创记录', cls: 'atlas-legacy-hint' });
+      for (const author of note.legacy_authors) {
+        const name = typeof author === 'string' ? author : (author.name || author.id || 'unknown');
+        const color = typeof author === 'object' ? author.color : null;
+        const role = typeof author === 'object' ? author.role : null;
+        this._renderAuthorRow(listWrap, name, color, role);
+      }
+    }
+  }
+
+  _renderAuthorRow(container, name, color, role) {
+    const row = container.createDiv('atlas-author-row');
+    const left = row.createDiv('atlas-author-left');
+    const catInfo = SpecParser.resolveCatColor(name);
+    const resolvedColor = color || catInfo?.color || '#C87D55';
+
+    // Find live cat data for real avatar
+    const client = this.plugin.cafeClient;
+    const liveCat = client?.cats?.find(c =>
+      c.nickname === name || c.displayName === name || c.name === name || c.id === name
+    );
+    // Use 3D avatar if we have a live cat, otherwise fallback
+    if (liveCat || client?.connected) {
+      const catObj = liveCat || { color: { primary: resolvedColor }, nickname: name, name: name };
+      renderCatAvatar3D(left, catObj, client, 'author');
+    } else {
+      const avatar = left.createEl('span', {
+        text: catInfo ? '🐾' : '✦',
+        cls: 'atlas-author-avatar atlas-avatar-fallback'
+      });
+      avatar.style.backgroundColor = resolvedColor;
+    }
+
+    const info = left.createDiv('atlas-author-info');
+    info.createEl('span', { text: String(name || 'unknown'), cls: 'atlas-author-name' });
+    info.createEl('span', {
+      text: catInfo ? `${catInfo.label} · 猫咖成员` : '共创伙伴',
+      cls: 'atlas-author-sub'
+    });
+
+    const roleMap = { author: '主笔', reviewer: '审阅', approver: '拍板' };
+    const roleText = role ? (roleMap[role] || role) : '主笔';
+    row.createEl('span', { text: roleText, cls: 'atlas-author-role-pill' });
+  }
+
+  _renderEvidence(container, note) {
+    const section = container.createDiv('atlas-lens-section');
+    section.createEl('h5', { text: '📜 证据链溯源' });
+    const timeline = section.createDiv('atlas-evidence-timeline');
+
+    for (const ev of note.atlas_evidence) {
+      const card = timeline.createDiv('atlas-evidence-card');
+      const top = card.createDiv('atlas-evidence-top');
+      const typeLabel = top.createDiv('atlas-evidence-type');
+      typeLabel.createEl('span', { text: this._evidenceIcon(ev.type) + ' ' + String(ev.type || 'evidence').toUpperCase() });
+
+      if (ev.label) {
+        card.createEl('div', { text: ev.label, cls: 'atlas-evidence-label' });
+      }
+      if (ev.ref) {
+        const refEl = card.createEl('div', { cls: 'atlas-evidence-ref' });
+        refEl.createEl('code', { text: ev.ref });
+      }
+    }
+  }
+
+  _renderLuminance(container, note, file) {
+    const section = container.createDiv('atlas-lens-section');
+    const titleRow = section.createDiv('atlas-section-title-row');
+    titleRow.createEl('h5', { text: '✦ 记忆光泽度' });
+
+    const pinBtn = titleRow.createEl('button', {
+      text: note.luminance_pinned ? '📌 已锁定恒星' : '📌 锁定恒星',
+      cls: `atlas-pin-toggle-btn ${note.luminance_pinned ? 'is-pinned' : ''}`,
+      attr: { title: '将此核心记忆锁定为恒星高亮，不随时间衰减' }
+    });
+    pinBtn.addEventListener('click', () => this._togglePinLuminance(file, note.luminance_pinned));
+
+    const backlinks = this._countBacklinks(file);
+    const fallbackLevel = backlinks >= 5 ? 'active' : backlinks >= 2 ? 'warm' : backlinks >= 1 ? 'cool' : null;
+    const effectiveLum = note.luminance_pinned ? 'active' : (note.luminance || fallbackLevel);
+    const lumState = effectiveLum ? LUMINANCE_STATES[effectiveLum] : null;
+
+    if (lumState) {
+      const row = section.createDiv('atlas-luminance-row');
+      const indicator = row.createDiv('atlas-luminance-indicator');
+      const leftBadge = indicator.createDiv('atlas-luminance-badge-left');
+      leftBadge.createEl('span', { text: lumState.icon, cls: 'atlas-luminance-icon', attr: { style: `color:${lumState.hex}` } });
+      leftBadge.createEl('span', { text: `${lumState.label} (${effectiveLum})`, cls: 'atlas-luminance-label' });
+
+      const percent = effectiveLum === 'active' ? 95 :
+                      effectiveLum === 'warm' ? 68 :
+                      effectiveLum === 'cool' ? 38 : 16;
+      indicator.createEl('span', { text: `${percent}%`, cls: 'atlas-metric-source' });
+
+      const bar = row.createDiv('atlas-luminance-bar');
+      const fill = bar.createDiv('atlas-luminance-bar-fill');
+      fill.style.width = percent + '%';
+      fill.style.backgroundColor = lumState.hex;
+    } else {
+      section.createEl('p', { text: '暂无服务端核验记录（本地双链 0）', cls: 'atlas-luminance-unknown' });
+    }
+
+    const metrics = section.createDiv('atlas-luminance-metrics');
+    metrics.createEl('span', { text: `📎 ${backlinks} 篇本地反链`, cls: 'atlas-metric' });
+    metrics.createEl('span', { text: note.luminance ? '来源：笔记快照' : '来源：本地双链折算', cls: 'atlas-metric-source' });
+  }
+
+  _renderSource(container, note) {
+    const section = container.createDiv('atlas-lens-section');
+    section.createEl('h5', { text: '🧭 来源登记' });
+    const table = section.createEl('table', { cls: 'atlas-lens-table' });
+    this._addTableRow(table, '来源系统', note.atlas_source);
+    if (note.atlas_source_ref) {
+      this._addTableRow(table, '引用锚点', note.atlas_source_ref);
+    }
+  }
+
+  _renderPaperInfo(container, note) {
+    const section = container.createDiv('atlas-lens-section');
+    section.createEl('h5', { text: '📑 论文元数据' });
+    const table = section.createEl('table', { cls: 'atlas-lens-table' });
+    if (note.paper_authors.length > 0) {
+      this._addTableRow(table, '论文作者', note.paper_authors.join(', '));
+    }
+    if (note.paper_arxiv) {
+      const row = table.createEl('tr');
+      row.createEl('td', { text: 'arXiv', cls: 'atlas-table-label' });
+      const td = row.createEl('td');
+      td.createEl('a', {
+        text: note.paper_arxiv,
+        href: `https://arxiv.org/abs/${note.paper_arxiv}`,
+        cls: 'external-link'
+      });
+    }
+    if (note.paper_venue) this._addTableRow(table, '发表机构', note.paper_venue);
+    if (note.paper_date) this._addTableRow(table, '年份日期', note.paper_date);
+  }
+
+  _renderRelated(container, note, file) {
+    const section = container.createDiv('atlas-lens-section');
+    section.createEl('h5', { text: '🕸 关联记忆网络' });
+
+    const seenTargets = new Set();
+    const allLinks = [];
+
+    for (const raw of (note.related || [])) {
+      const parsed = SpecParser.parseWikilink(raw);
+      if (!parsed) continue;
+      const resolved = this.app.metadataCache.getFirstLinkpathDest(parsed.target, file.path);
+      const target = resolved ? resolved.path : parsed.target;
+      if (!seenTargets.has(target)) {
+        seenTargets.add(target);
+        allLinks.push({ target, display: parsed.display, source: 'frontmatter', resolved: !!resolved });
+      }
+    }
+
+    const cache = this.app.metadataCache.getFileCache(file);
+    if (cache?.links) {
+      for (const link of cache.links) {
+        const resolved = this.app.metadataCache.getFirstLinkpathDest(link.link, file.path);
+        const target = resolved ? resolved.path : link.link;
+        if (!seenTargets.has(target)) {
+          seenTargets.add(target);
+          allLinks.push({ target, display: link.displayText || link.link, source: 'content', resolved: !!resolved });
+        }
+      }
+    }
+
+    if (allLinks.length === 0) {
+      section.createEl('p', { text: '暂无关联笔记', cls: 'atlas-empty-hint' });
+      return;
+    }
+
+    const list = section.createEl('ul', { cls: 'atlas-related-list' });
+    for (const rel of allLinks.slice(0, 15)) {
+      const li = list.createEl('li');
+      const link = li.createEl('a', { cls: 'internal-link' });
+      link.createEl('span', { text: `→ ${rel.display}` });
+      link.createEl('span', {
+        text: rel.source === 'frontmatter' ? '显式关联' : '正文引用',
+        attr: { style: 'font-size:10px; opacity:0.6;' }
+      });
+      if (!rel.resolved) {
+        link.addClass('is-unresolved');
+        link.title = '目标笔记不存在';
+      }
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (!rel.resolved) {
+          new obsidian.Notice(`笔记 "${rel.display}" 尚未创建。`);
+          return;
+        }
+        this.app.workspace.openLinkText(rel.target, file.path);
+      });
+    }
+  }
+
+  _renderIdentity(container, note) {
+    if (!note.atlas_id && !note.atlas_version) return;
+
+    const section = container.createDiv('atlas-lens-section atlas-lens-identity');
+    section.createEl('h5', { text: '🔖 记忆晶格标识' });
+    const table = section.createEl('table', { cls: 'atlas-lens-table' });
+    if (note.atlas_id) this._addTableRow(table, 'ID', note.atlas_id.slice(0, 18) + '…');
+    if (note.atlas_version) this._addTableRow(table, 'Spec', note.atlas_version);
+  }
+
+  // ── Helpers ──
+
+  _countBacklinks(file) {
+    return this._getBacklinkFiles(file).length;
+  }
+
+  _getBacklinkFiles(file) {
+    const allLinks = this.app.metadataCache.resolvedLinks;
+    const results = [];
+    for (const [sourcePath, targets] of Object.entries(allLinks)) {
+      if (sourcePath !== file.path && targets[file.path]) {
+        const f = this.app.vault.getAbstractFileByPath(sourcePath);
+        if (f) results.push(f);
+      }
+    }
+    return results.sort((a, b) => (b.stat?.mtime || 0) - (a.stat?.mtime || 0));
+  }
+
+  _getOutlinkFiles(file) {
+    const allLinks = this.app.metadataCache.resolvedLinks;
+    const targets = allLinks[file.path] || {};
+    const results = [];
+    for (const targetPath of Object.keys(targets)) {
+      const f = this.app.vault.getAbstractFileByPath(targetPath);
+      if (f) results.push(f);
+    }
+    return results;
+  }
+
+  _evidenceIcon(type) {
+    switch (type) {
+      case 'thread': return '💬';
+      case 'document': return '📄';
+      case 'paper': return '📑';
+      case 'code': return '💻';
+      case 'session': return '🔗';
+      default: return '📎';
+    }
+  }
+
+  _addTableRow(table, label, value) {
+    const row = table.createEl('tr');
+    row.createEl('td', { text: label, cls: 'atlas-table-label' });
+    row.createEl('td', { text: String(value || '-') });
+  }
+
+  _formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Settings Tab
+// ═══════════════════════════════════════════════
+class ClowderAtlasSettingTab extends obsidian.PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
+
+    containerEl.createEl('h2', { text: 'Clowder Atlas Settings' });
+
+    // ── Basic ──
+    containerEl.createEl('h3', { text: '基础' });
+
+    new obsidian.Setting(containerEl)
+      .setName('记忆笔记目录')
+      .setDesc('猫产出的记忆笔记存放位置：待结晶的在 pending，点亮结晶后移入 crystals（Obsidian 正常索引）')
+      .addText(text => text
+        .setPlaceholder('_atlas')
+        .setValue(this.plugin.settings.atlasDir)
+        .onChange(async (value) => {
+          this.plugin.settings.atlasDir = value || ATLAS_DIR_DEFAULT;
+          await this.plugin.saveSettings();
+        }));
+
+    new obsidian.Setting(containerEl)
+      .setName('Canvas 输出目录')
+      .setDesc('Atlas Canvas 自动生成的存放路径')
+      .addText(text => text
+        .setPlaceholder('_atlas/canvases')
+        .setValue(this.plugin.settings.canvasDir)
+        .onChange(async (value) => {
+          this.plugin.settings.canvasDir = value || '_atlas/canvases';
+          await this.plugin.saveSettings();
+        }));
+
+    new obsidian.Setting(containerEl)
+      .setName('默认记忆类型')
+      .addDropdown(drop => drop
+        .addOption('semantic', '语义 (semantic)')
+        .addOption('episodic', '情景 (episodic)')
+        .addOption('procedural', '程序 (procedural)')
+        .setValue(this.plugin.settings.defaultMemoryType)
+        .onChange(async (value) => {
+          this.plugin.settings.defaultMemoryType = value;
+          await this.plugin.saveSettings();
+        }));
+
+    // ── Clowder AI Connection ──
+    containerEl.createEl('h3', { text: 'Clowder AI 连接（可选）' });
+
+    new obsidian.Setting(containerEl)
+      .setName('启用 Clowder AI 连接')
+      .setDesc('连接本地 Cat Cafe Hub，解锁猫咖实况、对话跟踪和满血模式')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.catCafeEnabled)
+        .onChange(async (value) => {
+          this.plugin.settings.catCafeEnabled = value;
+          await this.plugin.saveSettings();
+          if (value) {
+            await this.plugin._initCafeConnection();
+          } else {
+            await this.plugin._disconnectCafe();
+            new obsidian.Notice('🐾 已断开猫咖连接');
+          }
+        }));
+
+    const connStatus = containerEl.createDiv('atlas-settings-conn-status');
+    const _refreshConnStatus = () => {
+      connStatus.empty();
+      if (this.plugin.isCafeConnected) {
+        const client = this.plugin.cafeClient;
+        connStatus.createEl('span', {
+          text: `✅ 已连接 · ${client.cats.length} 只猫 · ${client.threads.length} 条对话`,
+          cls: 'atlas-conn-ok'
+        });
+      } else if (this.plugin.settings.catCafeEnabled) {
+        const errMsg = this.plugin.cafeClient?.lastError || '无法连接';
+        connStatus.createEl('span', {
+          text: `❌ ${errMsg}`,
+          cls: 'atlas-conn-err'
+        });
+        // Diagnostic & auto-fix button
+        const fixRow = connStatus.createDiv('atlas-conn-fix-row');
+        const diagBtn = fixRow.createEl('button', {
+          text: '🔍 检测并修复',
+          cls: 'atlas-conn-fix-btn'
+        });
+        diagBtn.addEventListener('click', async () => {
+          diagBtn.textContent = '检测中…';
+          diagBtn.disabled = true;
+          const result = await this.plugin._diagnoseConnection();
+          diagBtn.textContent = '🔍 检测并修复';
+          diagBtn.disabled = false;
+          _refreshConnStatus();
+        });
+        // Show hint based on error type
+        const hint = connStatus.createDiv('atlas-conn-hint');
+        if (errMsg.includes('abort') || errMsg.includes('timeout') || errMsg.includes('ECONNREFUSED') || errMsg.includes('Failed')) {
+          hint.textContent = '💡 请确认 Cat Cafe Hub 正在运行 (pnpm start)';
+        }
+      }
+    };
+    _refreshConnStatus();
+
+    new obsidian.Setting(containerEl)
+      .setName('Cat Cafe 地址')
+      .setDesc('API 地址（通常是 http://localhost:3004）')
+      .addText(text => text
+        .setPlaceholder('http://localhost:3004')
+        .setValue(this.plugin.settings.catCafeAddress)
+        .onChange(async (value) => {
+          this.plugin.settings.catCafeAddress = value;
+          await this.plugin.saveSettings();
+          if (this.plugin.settings.catCafeEnabled) {
+            await this.plugin._initCafeConnection();
+            _refreshConnStatus();
+          }
+        }));
+
+    // One-click connect (same search as the chat panel) + where to get Clowder AI
+    new obsidian.Setting(containerEl)
+      .setName('一键连接猫咖')
+      .setDesc('自动查找本机正在运行的猫咖，填好地址并打开连接。还没安装猫咖的话，先下载安装。')
+      .addButton(btn => btn
+        .setButtonText('🔌 一键连接')
+        .setCta()
+        .onClick(async () => {
+          btn.setButtonText('查找中…');
+          btn.setDisabled(true);
+          const outcome = await this.plugin.oneClickConnect();
+          if (outcome.status === 'connected') {
+            new obsidian.Notice(`✅ 已连接猫咖：${outcome.address}`);
+            this.display(); // refresh the whole page: toggle, status and address
+            return;
+          }
+          new obsidian.Notice(outcome.status === 'failed'
+            ? `❌ 找到了猫咖（${outcome.address}），但没能连上：${outcome.error}`
+            : '❌ 本机没有找到运行中的猫咖 — 已安装的话先打开它；还没安装可以点「下载猫咖」');
+          btn.setButtonText('🔌 一键连接');
+          btn.setDisabled(false);
+        }))
+      .addButton(btn => btn
+        .setButtonText('⬇️ 下载猫咖')
+        .onClick(() => window.open(CLOWDER_RELEASES_URL)));
+
+    // ── Visual ──
+    containerEl.createEl('h3', { text: '视觉' });
+
+    new obsidian.Setting(containerEl)
+      .setName('显示引用徽章')
+      .setDesc('在笔记阅读模式顶部显示被猫引用的徽章')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.showRecallBadge)
+        .onChange(async (value) => {
+          this.plugin.settings.showRecallBadge = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new obsidian.Setting(containerEl)
+      .setName('启用 Luminance 视觉效果')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.enableLuminanceCSS)
+        .onChange(async (value) => {
+          this.plugin.settings.enableLuminanceCSS = value;
+          await this.plugin.saveSettings();
+        }));
+
+    const themeNote = containerEl.createEl('p', { cls: 'setting-item-description' });
+    themeNote.textContent = '深色/浅色主题 100% 跟随 Obsidian，无需手动开关';
+
+    // ── Advanced ──
+    containerEl.createEl('h3', { text: '高级' });
+
+    new obsidian.Setting(containerEl)
+      .setName('调试日志')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.debugLog)
+        .onChange(async (value) => {
+          this.plugin.settings.debugLog = value;
+          await this.plugin.saveSettings();
+        }));
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Star Chart View — constellation-style memory atlas
+// ═══════════════════════════════════════════════
+class StarChartView extends obsidian.ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this._animId = null;
+    this._rotX = 0.32;
+    this._rotY = 0;
+    this._autoRotSpeed = 0.0011;
+    this._paused = false;
+    this._filter = 'all';
+    this._isDragging = false;
+    this._lastMouse = { x: 0, y: 0 };
+    this._hoveredIdx = -1;
+    this._zoom = 1.0;
+    this._stars = [];
+    this._edges = [];
+    this._dust = [];
+    this._time = 0;
+    this._teardown = [];     // cleanup for whatever a build attached outside its own DOM
+    this._openPanel = null;  // 'legend' | 'help' | null
+  }
+
+  getViewType() { return VIEW_TYPE_STAR_CHART; }
+  getDisplayText() { return 'Atlas Star Chart'; }
+  getIcon() { return 'star'; }
+
+  async onOpen() {
+    const container = this.containerEl.children[1];
+    this._disposeChart();
+    container.empty();
+    container.addClass('atlas-star-chart-container');
+    this._buildChart(container);
+  }
+
+  async onClose() {
+    this._disposeChart();
+  }
+
+  /** Stop the render loop and detach window/document listeners and observers from the last build. */
+  _disposeChart() {
+    if (this._animId) {
+      cancelAnimationFrame(this._animId);
+      this._animId = null;
+    }
+    const fns = this._teardown;
+    this._teardown = [];
+    for (const fn of fns) fn();
+    this._openPanel = null;
+  }
+
+  _listen(target, type, handler, options) {
+    target.addEventListener(type, handler, options);
+    this._teardown.push(() => target.removeEventListener(type, handler, options));
+  }
+
+  /** setIcon with fallbacks: Lucide ids differ across Obsidian versions (circle-help vs help-circle). */
+  _setIcon(el, ids) {
+    for (const id of ids) {
+      el.empty();
+      obsidian.setIcon(el, id);
+      if (el.querySelector('svg')) return;
+    }
+  }
+
+  // ── Data gathering (same logic: all files, backlink scoring) ──
+  _gatherData() {
+    const allFiles = this.plugin.app.vault.getMarkdownFiles();
+    const resolvedLinks = this.plugin.app.metadataCache.resolvedLinks;
+
+    const backlinkCounts = {};
+    for (const [sourcePath, targets] of Object.entries(resolvedLinks)) {
+      for (const targetPath of Object.keys(targets)) {
+        backlinkCounts[targetPath] = (backlinkCounts[targetPath] || 0) + 1;
+      }
+    }
+
+    const scored = allFiles.map(file => {
+      const outlinks = Object.keys(resolvedLinks[file.path] || {}).length;
+      const backlinks = backlinkCounts[file.path] || 0;
+      const cache = this.plugin.app.metadataCache.getFileCache(file);
+      const note = SpecParser.parse(cache?.frontmatter);
+      return { file, note, cache, backlinks, outlinks, score: backlinks * 2 + outlinks };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    const mainStars = scored.filter(s => s.score > 0).slice(0, 80);
+
+    // Build connection graph
+    const nodeMap = {};
+    mainStars.forEach((item, i) => { nodeMap[item.file.path] = i; });
+
+    const connections = [];
+    const connSet = new Set();
+    for (const { file } of mainStars) {
+      const srcIdx = nodeMap[file.path];
+      const targets = resolvedLinks[file.path] || {};
+      for (const targetPath of Object.keys(targets)) {
+        const tgtIdx = nodeMap[targetPath];
+        if (tgtIdx !== undefined && tgtIdx !== srcIdx) {
+          const key = srcIdx < tgtIdx ? `${srcIdx}-${tgtIdx}` : `${tgtIdx}-${srcIdx}`;
+          if (!connSet.has(key)) {
+            connSet.add(key);
+            connections.push([srcIdx, tgtIdx]);
+          }
+        }
+      }
+    }
+
+    return { mainStars, connections };
+  }
+
+  // ── 3D force-directed layout ──
+  _layout3D(stars, connections) {
+    const n = stars.length;
+    const SPHERE_R = 280;
+
+    // Fibonacci sphere — even distribution on a sphere surface
+    const positions = stars.map((_, i) => {
+      const golden = Math.PI * (3 - Math.sqrt(5));
+      const y = 1 - (i / (n - 1 || 1)) * 2;        // -1..1
+      const radiusAtY = Math.sqrt(1 - y * y);
+      const theta = golden * i;
+      return {
+        x: Math.cos(theta) * radiusAtY * SPHERE_R,
+        y: y * SPHERE_R,
+        z: Math.sin(theta) * radiusAtY * SPHERE_R
+      };
+    });
+
+    // 3D force simulation
+    const velocities = positions.map(() => ({ vx: 0, vy: 0, vz: 0 }));
+    const iterations = 100;
+    const repulsion = 8000;
+    const attraction = 0.008;
+    const gravity = 0.015;
+    const damping = 0.88;
+
+    for (let iter = 0; iter < iterations; iter++) {
+      const temp = 1 - iter / iterations;
+
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          let dx = positions[i].x - positions[j].x;
+          let dy = positions[i].y - positions[j].y;
+          let dz = positions[i].z - positions[j].z;
+          let dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+          let force = repulsion / (dist * dist) * temp;
+          let fx = (dx / dist) * force;
+          let fy = (dy / dist) * force;
+          let fz = (dz / dist) * force;
+          velocities[i].vx += fx; velocities[i].vy += fy; velocities[i].vz += fz;
+          velocities[j].vx -= fx; velocities[j].vy -= fy; velocities[j].vz -= fz;
+        }
+      }
+
+      for (const [a, b] of connections) {
+        let dx = positions[b].x - positions[a].x;
+        let dy = positions[b].y - positions[a].y;
+        let dz = positions[b].z - positions[a].z;
+        let dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+        let force = dist * attraction * temp;
+        let fx = (dx / dist) * force;
+        let fy = (dy / dist) * force;
+        let fz = (dz / dist) * force;
+        velocities[a].vx += fx; velocities[a].vy += fy; velocities[a].vz += fz;
+        velocities[b].vx -= fx; velocities[b].vy -= fy; velocities[b].vz -= fz;
+      }
+
+      for (let i = 0; i < n; i++) {
+        velocities[i].vx -= positions[i].x * gravity * temp;
+        velocities[i].vy -= positions[i].y * gravity * temp;
+        velocities[i].vz -= positions[i].z * gravity * temp;
+      }
+
+      for (let i = 0; i < n; i++) {
+        velocities[i].vx *= damping; velocities[i].vy *= damping; velocities[i].vz *= damping;
+        positions[i].x += velocities[i].vx;
+        positions[i].y += velocities[i].vy;
+        positions[i].z += velocities[i].vz;
+      }
+    }
+
+    return positions;
+  }
+
+  _rotatePoint(x, y, z, rx, ry) {
+    let x1 = x * Math.cos(ry) - z * Math.sin(ry);
+    let z1 = x * Math.sin(ry) + z * Math.cos(ry);
+    let y1 = y * Math.cos(rx) - z1 * Math.sin(rx);
+    let z2 = y * Math.sin(rx) + z1 * Math.cos(rx);
+    return { x: x1, y: y1, z: z2 };
+  }
+
+  _project(x, y, z, W, H) {
+    const fov = 500 * this._zoom;
+    const scale = fov / (z + fov + 400);
+    return {
+      sx: W / 2 + x * scale,
+      sy: H / 2 + y * scale,
+      scale: scale,
+      depth: z
+    };
+  }
+
+  _generateDust(count) {
+    const dust = [];
+    for (let i = 0; i < count; i++) {
+      dust.push({
+        x: (Math.random() - 0.5) * 900,
+        y: (Math.random() - 0.5) * 900,
+        z: (Math.random() - 0.5) * 900,
+        brightness: Math.random() * 0.45 + 0.1,
+        size: Math.random() * 1.2 + 0.3,
+        twinkleOffset: Math.random() * Math.PI * 2,
+        twinkleSpeed: Math.random() * 0.02 + 0.005
+      });
+    }
+    return dust;
+  }
+
+  _starColor(backlinks, note) {
+    if (backlinks >= 5) return '#F5C85C';
+    if (note?.memory_type === 'semantic' && backlinks >= 2) return '#8AB4F8';
+    if (note?.memory_type === 'procedural' && backlinks >= 2) return '#73DACA';
+    if (backlinks >= 2) return '#E0AF68';
+    if (backlinks >= 1) return '#A9B7C6';
+    return '#6E6A66';
+  }
+
+  _starBaseRadius(backlinks) {
+    if (backlinks >= 5) return 6.5;
+    if (backlinks >= 2) return 4.2;
+    if (backlinks >= 1) return 2.6;
+    return 1.6;
+  }
+
+  _matchesFilter(star) {
+    if (this._filter === 'all') return true;
+    if (this._filter === 'star') return star.backlinks >= 5;
+    if (this._filter === 'atlas') return !!star.note;
+    return star.note?.memory_type === this._filter;
+  }
+
+  // ── Main build ──
+  // Layout v2 (spec: research/agent-memory/internal/clowder-atlas/star-chart-layout-v2.md):
+  // root grid = top bar (title + filters) · stage (canvas + overlays) · bottom bar (totals + actions)
+  _buildChart(root) {
+    const { mainStars, connections } = this._gatherData();
+    root.classList.remove('is-empty', 'is-compact', 'is-narrow');
+
+    // ── Top bar ──
+    const topbar = root.createDiv('atlas-star-topbar');
+    const title = topbar.createDiv('atlas-star-title');
+    this._setIcon(title.createSpan({ cls: 'atlas-star-title-icon', attr: { 'aria-hidden': 'true' } }), ['sparkle', 'sparkles', 'star']);
+    title.createSpan({ text: '记忆星图' });
+
+    if (mainStars.length === 0) {
+      root.addClass('is-empty');
+      root.createDiv('atlas-star-stage').createDiv({
+        cls: 'atlas-star-empty',
+        text: '你的 Vault 还没有互相链接的笔记。开始用 [[双链]] 连接你的想法，星空就会亮起来 ✨'
+      });
+      return;
+    }
+
+    const positions3D = this._layout3D(mainStars, connections);
+
+    this._stars = mainStars.map((star, i) => ({
+      ...star,
+      x: positions3D[i].x,
+      y: positions3D[i].y,
+      z: positions3D[i].z,
+      twinkleOffset: Math.random() * Math.PI * 2,
+      twinkleSpeed: Math.random() * 0.015 + 0.005
+    }));
+    this._edges = connections;
+    this._dust = this._generateDust(520);
+
+    // ── Filters: six text buttons (wide pane) + one select (compact pane), one shared state ──
+    const FILTERS = [
+      { id: 'all',        short: '全部',  full: '全部星群' },
+      { id: 'star',       short: '恒星',  full: '恒星' },
+      { id: 'atlas',      short: 'Atlas', full: 'Atlas 记忆' },
+      { id: 'semantic',   short: '语义',  full: '语义记忆' },
+      { id: 'episodic',   short: '情景',  full: '情景记忆' },
+      { id: 'procedural', short: '程序',  full: '程序记忆' },
+    ];
+    const filterGroup = topbar.createDiv({ cls: 'atlas-star-filters', attr: { role: 'group', 'aria-label': '星群筛选（单选）' } });
+    const filterButtons = FILTERS.map((f) => {
+      const btn = filterGroup.createEl('button', {
+        text: f.short,
+        cls: 'atlas-star-btn atlas-star-filter',
+        attr: { type: 'button', 'data-filter': f.id, 'aria-pressed': 'false' },
+      });
+      btn.addEventListener('click', () => setFilter(f.id));
+      return btn;
+    });
+    const filterSelectWrap = topbar.createEl('label', { cls: 'atlas-star-filter-select' });
+    filterSelectWrap.createSpan({ cls: 'atlas-star-sr-only', text: '星群筛选' });
+    const filterSelect = filterSelectWrap.createEl('select', { cls: 'atlas-star-select' });
+    for (const f of FILTERS) filterSelect.createEl('option', { text: f.full, attr: { value: f.id } });
+    this._setIcon(filterSelectWrap.createSpan({ cls: 'atlas-star-select-chevron', attr: { 'aria-hidden': 'true' } }), ['chevron-down']);
+    filterSelect.addEventListener('change', () => setFilter(filterSelect.value));
+
+    // ── Stage: canvas plus every in-canvas overlay, all positioned against the stage ──
+    // Accessible names below avoid aria-label on large/hover surfaces: Obsidian turns every
+    // aria-label into a hover tooltip, which would fight the star tooltip on the canvas.
+    const uid = Math.random().toString(36).slice(2, 8);
+    const stage = root.createDiv('atlas-star-stage');
+    stage.createSpan({
+      cls: 'atlas-star-sr-only',
+      text: '记忆星图：拖拽旋转，滚轮或双指缩放，点击星体打开笔记',
+      attr: { id: `atlas-star-canvas-label-${uid}` },
+    });
+    const canvas = stage.createEl('canvas', {
+      cls: 'atlas-star-canvas',
+      attr: { role: 'img', 'aria-labelledby': `atlas-star-canvas-label-${uid}` },
+    });
+    const sceneHint = stage.createDiv({ cls: 'atlas-star-scene-hint', attr: { 'aria-live': 'polite' } });
+    const tooltip = stage.createDiv('atlas-star-tooltip');
+    tooltip.style.display = 'none';
+
+    // Filtering highlights/dims stars; it never changes the totals in the bottom bar.
+    const setFilter = (value) => {
+      const f = FILTERS.find((x) => x.id === value) || FILTERS[0];
+      this._filter = f.id;
+      for (const btn of filterButtons) btn.setAttribute('aria-pressed', String(btn.dataset.filter === f.id));
+      if (filterSelect.value !== f.id) filterSelect.value = f.id;
+      sceneHint.hidden = f.id === 'all';
+      if (f.id !== 'all') {
+        const n = this._stars.filter((s) => this._matchesFilter(s)).length;
+        sceneHint.textContent = n > 0 ? `${f.full} · ${n} 颗星高亮` : `${f.full} · 暂无匹配的星`;
+      }
+    };
+    setFilter(this._filter);
+
+    // Retina support — use canvas's OWN rect (not parent, which includes footer)
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      canvas._dpr = dpr;
+      canvas._W = rect.width;
+      canvas._H = rect.height;
+    };
+
+    // Store last frame's screen positions for pixel-perfect hit testing
+    this._screenPos = [];
+
+    // ── Mouse interaction ──
+    let dragDistance = 0;  // a drag that ends over a star is a rotation, not a click
+    canvas.addEventListener('mousedown', (e) => {
+      this._isDragging = true;
+      dragDistance = 0;
+      this._lastMouse = { x: e.clientX, y: e.clientY };
+      canvas.style.cursor = 'grabbing';
+    });
+
+    const onMouseUp = () => {
+      this._isDragging = false;
+      canvas.style.cursor = 'grab';
+    };
+    this._listen(window, 'mouseup', onMouseUp);
+
+    const onMouseMove = (e) => {
+      if (this._isDragging) {
+        const dx = e.clientX - this._lastMouse.x;
+        const dy = e.clientY - this._lastMouse.y;
+        dragDistance += Math.abs(dx) + Math.abs(dy);
+        this._rotY += dx * 0.005;
+        this._rotX += dy * 0.005;
+        this._rotX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this._rotX));
+        this._lastMouse = { x: e.clientX, y: e.clientY };
+      }
+
+      // Hit test using LAST RENDERED frame positions (pixel-perfect match).
+      // Only the canvas itself hovers stars — never the legend/help panels or the bars.
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      if (e.target !== canvas || mx < 0 || my < 0 || mx > rect.width || my > rect.height) {
+        this._hoveredIdx = -1;
+        tooltip.style.display = 'none';
+        return;
+      }
+
+      let closest = -1;
+      let closestDist = 25;
+
+      for (const sp of this._screenPos) {
+        if (!sp.match) continue;
+        const dx = mx - sp.sx, dy = my - sp.sy;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < closestDist) {
+          closestDist = d;
+          closest = sp.i;
+        }
+      }
+
+      this._hoveredIdx = closest;
+      if (closest >= 0) {
+        const s = this._stars[closest];
+        const name = s.note?.title || s.file.basename;
+        const lumLabel = s.backlinks >= 5 ? '恒星' : s.backlinks >= 2 ? '温星' : s.backlinks >= 1 ? '冷星' : '暗尘';
+        const typeTag = s.note ? ` · ${MEMORY_TYPE_COLORS[s.note.memory_type]?.label || 'Atlas'}` : '';
+        tooltip.textContent = `${name} · 被 ${s.backlinks} 篇笔记链接 · ${lumLabel}${typeTag}`;
+        tooltip.style.display = 'block';
+        // Canvas fills the stage, so canvas coordinates are stage coordinates; clamp on every side.
+        const tw = tooltip.offsetWidth;
+        const th = tooltip.offsetHeight;
+        tooltip.style.left = Math.max(12, Math.min(mx + 14, rect.width - tw - 12)) + 'px';
+        tooltip.style.top = Math.max(12, Math.min(my - 12, rect.height - th - 12)) + 'px';
+        canvas.style.cursor = 'pointer';
+      } else {
+        tooltip.style.display = 'none';
+        if (!this._isDragging) canvas.style.cursor = 'grab';
+      }
+    };
+    this._listen(window, 'mousemove', onMouseMove);
+
+    // Click to open note
+    canvas.addEventListener('click', () => {
+      if (dragDistance > 4) return;
+      if (this._hoveredIdx >= 0) {
+        const s = this._stars[this._hoveredIdx];
+        this.plugin.app.workspace.getLeaf(false).openFile(s.file);
+      }
+    });
+
+    // ── Zoom: mouse wheel + trackpad pinch + touch pinch ──
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.ctrlKey) {
+        this._zoom = Math.max(0.2, Math.min(8.0, this._zoom * (1 - e.deltaY * 0.008)));
+      } else {
+        this._zoom = Math.max(0.2, Math.min(8.0, this._zoom * (1 - e.deltaY * 0.002)));
+      }
+    }, { passive: false });
+
+    let gestureStartZoom = 1;
+    canvas.addEventListener('gesturestart', (e) => {
+      e.preventDefault();
+      gestureStartZoom = this._zoom;
+    });
+    canvas.addEventListener('gesturechange', (e) => {
+      e.preventDefault();
+      this._zoom = Math.max(0.2, Math.min(8.0, gestureStartZoom * e.scale));
+    });
+    canvas.addEventListener('gestureend', (e) => {
+      e.preventDefault();
+    });
+
+    let touchStartDist = 0;
+    let touchStartZoom = 1;
+
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        this._isDragging = true;
+        this._lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      } else if (e.touches.length === 2) {
+        this._isDragging = false;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        touchStartDist = Math.sqrt(dx * dx + dy * dy);
+        touchStartZoom = this._zoom;
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (e.touches.length === 1 && this._isDragging) {
+        const dx = e.touches[0].clientX - this._lastMouse.x;
+        const dy = e.touches[0].clientY - this._lastMouse.y;
+        this._rotY += dx * 0.005;
+        this._rotX += dy * 0.005;
+        this._rotX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this._rotX));
+        this._lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      } else if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const scale = dist / (touchStartDist || 1);
+        this._zoom = Math.max(0.2, Math.min(8.0, touchStartZoom * scale));
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (e) => {
+      if (e.touches.length === 0) {
+        this._isDragging = false;
+      } else if (e.touches.length === 1) {
+        this._isDragging = true;
+        this._lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    });
+
+    // ── Bottom bar: load totals (left) + actions (right). No cafe/seminar entry here. ──
+    const bottombar = root.createDiv('atlas-star-bottombar');
+    const atlasCount = this._stars.filter(s => s.note).length;
+    const totals = `星图总量：${this._stars.length} 颗星 · ${this._edges.length} 条关联 · ${atlasCount} 篇 Atlas 记忆`;
+    // aria-label doubles as Obsidian's hover tooltip (shown above the bar), so collapsed totals stay reachable
+    const stats = bottombar.createDiv({ cls: 'atlas-star-stats', attr: { role: 'group', 'aria-label': totals, 'data-tooltip-position': 'top' } });
+    const addStat = (extraCls, value, label) => {
+      const item = stats.createSpan({ cls: `atlas-star-stat ${extraCls}`.trim() });
+      item.createEl('b', { text: String(value) });
+      item.createSpan({ text: label });
+    };
+    addStat('', this._stars.length, '颗星');
+    addStat('is-edge-count', this._edges.length, '关联');
+    addStat('is-atlas-count', atlasCount, 'Atlas');
+
+    const actions = bottombar.createDiv({ cls: 'atlas-star-actions', attr: { role: 'group', 'aria-label': '星图操作' } });
+    const addAction = ({ label, icons, text }) => {
+      const btn = actions.createEl('button', {
+        cls: `atlas-star-btn atlas-star-action${text ? '' : ' is-icon-only'}`,
+        attr: { type: 'button', 'aria-label': label, 'data-tooltip-position': 'top' },  // Obsidian tooltip, no native title
+      });
+      const icon = btn.createSpan({ cls: 'atlas-star-icon', attr: { 'aria-hidden': 'true' } });
+      this._setIcon(icon, icons);
+      if (text) btn.createSpan({ cls: 'atlas-star-action-label', text });
+      return { btn, icon };
+    };
+
+    const pause = addAction({ label: '暂停旋转', icons: ['pause'] });
+    const syncPause = () => {
+      const label = this._paused ? '开始旋转' : '暂停旋转';  // names the action the next click performs
+      pause.btn.setAttribute('aria-label', label);
+      this._setIcon(pause.icon, [this._paused ? 'play' : 'pause']);
+    };
+    syncPause();
+    pause.btn.addEventListener('click', () => {
+      this._paused = !this._paused;
+      syncPause();
+    });
+
+    const reset = addAction({ label: '复位视角', icons: ['focus', 'scan', 'locate-fixed', 'crosshair'] });
+    reset.btn.addEventListener('click', () => {
+      this._rotX = 0.32;
+      this._rotY = 0;
+      this._zoom = 1.0;
+    });
+
+    actions.createSpan({ cls: 'atlas-star-divider', attr: { 'aria-hidden': 'true' } });
+
+    const exportCanvas = addAction({ label: '导出 Canvas', icons: ['download'], text: '导出 Canvas' });
+    exportCanvas.btn.addEventListener('click', () => this.plugin.generateCanvas());
+
+    const legend = addAction({ label: '图例', icons: ['list'], text: '图例' });
+    const help = addAction({ label: '操作说明', icons: ['circle-help', 'help-circle'] });
+
+    // ── Legend / help: closed by default, open inside the stage, mutually exclusive ──
+    const makePanel = (key, heading) => {
+      const id = `atlas-star-${key}-${uid}`;
+      const panel = stage.createEl('section', {
+        cls: 'atlas-star-popover',
+        attr: { id, tabindex: '-1', 'aria-labelledby': `${id}-title` },
+      });
+      panel.hidden = true;
+      panel.createEl('h2', { text: heading, attr: { id: `${id}-title` } });
+      return panel;
+    };
+
+    // Mirrors _starColor / _starBaseRadius: brightness = number of notes linking here.
+    const legendPanel = makePanel('legend', '读懂这片星空');
+    const addLegendRow = (label, { color, note, ring } = {}) => {
+      const row = legendPanel.createDiv('atlas-star-legend-row');
+      const dot = row.createSpan({ cls: ring ? 'atlas-star-dot is-ring' : 'atlas-star-dot' });
+      if (color) dot.style.setProperty('--dot', color);
+      row.createSpan({ text: label });
+      if (note) row.createEl('small', { text: note });
+    };
+    legendPanel.createEl('h3', { text: '亮度 · 本库被链接数' });
+    addLegendRow('恒星', { color: '#F5C85C', note: '≥ 5' });
+    addLegendRow('温星', { color: '#E0AF68', note: '2–4' });
+    addLegendRow('冷星', { color: '#A9B7C6', note: '1' });
+    addLegendRow('暗尘', { color: '#6E6A66', note: '0' });
+    legendPanel.createEl('h3', { text: '温星颜色 · 记忆类型' });
+    addLegendRow('语义记忆', { color: '#8AB4F8' });
+    addLegendRow('程序记忆', { color: '#73DACA' });
+    addLegendRow('细金环', { ring: true, note: 'Atlas 记忆' });
+    legendPanel.createEl('p', { text: '达到恒星亮度后统一显示金色。亮度是链接到这篇笔记的源笔记数，不代表猫猫调用次数。' });
+
+    const helpPanel = makePanel('help', '漫游星图');
+    for (const [what, how] of [['旋转视角', '拖拽'], ['缩放星群', '滚轮 / 双指'], ['打开笔记', '点击星体']]) {
+      const row = helpPanel.createDiv('atlas-star-help-row');
+      row.createSpan({ text: what });
+      row.createSpan({ text: how });
+    }
+    helpPanel.createEl('p', { text: '视角迷路时，点击底栏的「复位视角」。' });
+
+    const panels = {
+      legend: { btn: legend.btn, panel: legendPanel },
+      help: { btn: help.btn, panel: helpPanel },
+    };
+    const closePanel = (returnFocus) => {
+      const open = this._openPanel && panels[this._openPanel];
+      if (!open) return;
+      open.panel.hidden = true;
+      open.btn.setAttribute('aria-expanded', 'false');
+      this._openPanel = null;
+      if (returnFocus) open.btn.focus();
+    };
+    const togglePanel = (key) => {
+      const wasOpen = this._openPanel === key;
+      closePanel(false);
+      if (wasOpen) return;
+      const { btn, panel } = panels[key];
+      panel.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      this._openPanel = key;
+      panel.focus({ preventScroll: true });
+    };
+    for (const [key, { btn, panel }] of Object.entries(panels)) {
+      btn.setAttribute('aria-expanded', 'false');
+      btn.setAttribute('aria-controls', panel.id);
+      btn.addEventListener('click', () => togglePanel(key));
+    }
+    // Escape only while focus is inside this view, so other panes keep their own Escape.
+    this._listen(root, 'keydown', (e) => {
+      if (e.key !== 'Escape' || !this._openPanel) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closePanel(true);
+    });
+    this._listen(document, 'pointerdown', (e) => {
+      if (!this._openPanel) return;
+      const t = e.target;
+      const inside = t instanceof Node &&
+        Object.values(panels).some(({ btn, panel }) => btn.contains(t) || panel.contains(t));
+      if (!inside) closePanel(false);
+    }, true);
+
+    // ── Layout follows the pane's own width (not the app window) ──
+    const applyWidth = (width) => {
+      if (!width) return;  // hidden/background leaf: keep classes until it is measured again
+      root.classList.toggle('is-compact', width < 680);
+      root.classList.toggle('is-narrow', width < 440);
+    };
+
+    // Obsidian floats its status bar over the window's bottom-right corner. When this pane sits
+    // under it: slide the actions left of it if they fit, otherwise lift the bar's content above it.
+    const statusBar = root.ownerDocument.querySelector('.status-bar');
+    const avoidStatusBar = () => {
+      let reserve = 0;
+      let lift = 0;
+      if (statusBar) {
+        const s = statusBar.getBoundingClientRect();
+        const b = bottombar.getBoundingClientRect();
+        if (s.width > 0 && s.height > 0 && s.left < b.right && s.right > b.left && s.top < b.bottom && s.bottom > b.top) {
+          const overlap = Math.ceil(b.right - s.left);
+          const leftPad = parseFloat(getComputedStyle(bottombar).paddingLeft) || 0;
+          if (b.width - leftPad - (overlap + 12) >= actions.offsetWidth) reserve = overlap;
+          else lift = Math.ceil(b.bottom - s.top);
+        }
+      }
+      bottombar.style.setProperty('--atlas-star-statusbar', `${reserve}px`);
+      bottombar.style.setProperty('--atlas-star-statusbar-lift', `${lift}px`);
+    };
+
+    applyWidth(root.getBoundingClientRect().width);
+    avoidStatusBar();
+    const widthObs = new ResizeObserver((entries) => {
+      applyWidth(entries[0].contentRect.width);
+      avoidStatusBar();
+    });
+    widthObs.observe(root);
+    this._teardown.push(() => widthObs.disconnect());
+    if (statusBar) {
+      const statusObs = new ResizeObserver(() => avoidStatusBar());  // items change with the active view
+      statusObs.observe(statusBar);
+      this._teardown.push(() => statusObs.disconnect());
+      // Neither observer fires when a move keeps both sizes: reordering equal panes, dragging the tab into
+      // another split, or a window resize sliding the status bar past a fixed-width pane. Obsidian reports
+      // these as workspace events that are already debounced until the DOM settles, so re-measure directly.
+      const { workspace } = this.plugin.app;
+      for (const name of ['layout-change', 'resize']) {
+        const ref = workspace.on(name, avoidStatusBar);
+        this._teardown.push(() => workspace.offref(ref));
+      }
+    }
+
+    // Size the canvas backing store now, then follow the canvas' own box
+    resize();
+    const resizeObs = new ResizeObserver(() => resize());
+    resizeObs.observe(canvas);
+    this._teardown.push(() => resizeObs.disconnect());
+
+    // ── Animation loop ──
+    const ctx = canvas.getContext('2d');
+    const render = () => {
+      this._animId = requestAnimationFrame(render);
+      this._time++;
+
+      const dpr = canvas._dpr || 1;
+      const W = canvas._W || 800;
+      const H = canvas._H || 600;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Auto-rotate when not dragging and not paused
+      if (!this._isDragging && !this._paused) {
+        this._rotY += this._autoRotSpeed;
+      }
+
+      // ── Warm Midnight Cat Cafe Nebula Background ──
+      const bgGrad = ctx.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H / 2, W * 0.78);
+      bgGrad.addColorStop(0, '#241C27');
+      bgGrad.addColorStop(0.52, '#171219');
+      bgGrad.addColorStop(1, '#0E0B10');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, W, H);
+
+      // Warm Cat Cafe Nebula Clouds (Caramel, Amber Gold, Ragdoll Blue)
+      ctx.globalCompositeOperation = 'screen';
+      const nebulaColors = [
+        { x: W * 0.32, y: H * 0.38, r: W * 0.28, color: 'rgba(200, 125, 85, 0.045)' },
+        { x: W * 0.68, y: H * 0.58, r: W * 0.24, color: 'rgba(108, 142, 191, 0.04)' },
+        { x: W * 0.50, y: H * 0.28, r: W * 0.18, color: 'rgba(232, 184, 75, 0.03)' },
+      ];
+      for (const nb of nebulaColors) {
+        const g = ctx.createRadialGradient(nb.x, nb.y, 0, nb.x, nb.y, nb.r);
+        g.addColorStop(0, nb.color);
+        g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+
+      // ── Draw warm stardust particles ──
+      for (const d of this._dust) {
+        const rot = this._rotatePoint(d.x, d.y, d.z, this._rotX, this._rotY);
+        const p = this._project(rot.x, rot.y, rot.z, W, H);
+        if (p.scale <= 0) continue;
+
+        const twinkle = 0.5 + 0.5 * Math.sin(this._time * d.twinkleSpeed + d.twinkleOffset);
+        const alpha = d.brightness * twinkle * Math.min(1, p.scale * 1.4);
+        const size = d.size * p.scale;
+
+        ctx.beginPath();
+        ctx.arc(p.sx, p.sy, Math.max(0.3, size), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(238, 222, 204, ${alpha.toFixed(3)})`;
+        ctx.fill();
+      }
+
+      // ── Project all stars ──
+      const projected = this._stars.map((s, i) => {
+        const rot = this._rotatePoint(s.x, s.y, s.z, this._rotX, this._rotY);
+        const p = this._project(rot.x, rot.y, rot.z, W, H);
+        const match = this._matchesFilter(s);
+        return { i, sx: p.sx, sy: p.sy, scale: p.scale, depth: p.depth, match };
+      });
+
+      this._screenPos = projected;
+
+      const projByIdx = {};
+      for (const p of projected) projByIdx[p.i] = p;
+
+      projected.sort((a, b) => b.depth - a.depth);
+
+      // ── Draw constellation edges ──
+      ctx.lineWidth = 1;
+      for (const [a, b] of this._edges) {
+        const pa = projByIdx[a];
+        const pb = projByIdx[b];
+        if (!pa || !pb) continue;
+        const bothMatch = pa.match && pb.match;
+        const avgScale = (pa.scale + pb.scale) / 2;
+        const alpha = bothMatch ? Math.min(0.28, avgScale * 0.32) : 0.03;
+        ctx.beginPath();
+        ctx.moveTo(pa.sx, pa.sy);
+        ctx.lineTo(pb.sx, pb.sy);
+        ctx.strokeStyle = `rgba(212, 165, 116, ${alpha.toFixed(3)})`;
+        ctx.stroke();
+      }
+
+      // ── Draw stars ──
+      for (const p of projected) {
+        const s = this._stars[p.i];
+        const isHovered = p.i === this._hoveredIdx;
+        const dimFactor = p.match ? 1 : 0.14;
+        const twinkle = 0.82 + 0.18 * Math.sin(this._time * s.twinkleSpeed + s.twinkleOffset);
+        const baseR = this._starBaseRadius(s.backlinks);
+        const r = baseR * p.scale * twinkle * (isHovered ? 1.55 : 1);
+        const color = this._starColor(s.backlinks, s.note);
+
+        if (r < 0.3) continue;
+
+        // Soft halo glow
+        if ((s.backlinks >= 2 || isHovered) && p.match) {
+          const glowR = r * (s.backlinks >= 5 ? 4.2 : 2.8);
+          const gc = this._hexToRGBA(color, (isHovered ? 0.42 : 0.24) * dimFactor);
+          const gcFade = this._hexToRGBA(color, 0);
+          const glowGrad = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, glowR);
+          glowGrad.addColorStop(0, gc);
+          glowGrad.addColorStop(1, gcFade);
+          ctx.beginPath();
+          ctx.arc(p.sx, p.sy, glowR, 0, Math.PI * 2);
+          ctx.fillStyle = glowGrad;
+          ctx.fill();
+        }
+
+        // Star body
+        if (s.backlinks >= 5) {
+          this._drawStarShape(ctx, p.sx, p.sy, 5, r, r * 0.46, color, twinkle * dimFactor);
+        } else {
+          ctx.beginPath();
+          ctx.arc(p.sx, p.sy, r, 0, Math.PI * 2);
+          const alpha = (s.backlinks === 0 ? 0.42 * p.scale : 0.9 * twinkle) * dimFactor;
+          ctx.fillStyle = this._hexToRGBA(color, Math.min(1, alpha));
+          ctx.fill();
+        }
+
+        // Subtle golden ring for Atlas-indexed notes
+        if (s.note && r > 2.5 && p.match) {
+          ctx.beginPath();
+          ctx.arc(p.sx, p.sy, r + 2.2, 0, Math.PI * 2);
+          ctx.strokeStyle = this._hexToRGBA('#E8B84B', 0.45 * p.scale);
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+
+        // Pill-backed readable label for prominent or hovered stars
+        if (p.match && ((s.backlinks >= 2 && p.scale > 0.44) || p.scale > 0.85 || isHovered)) {
+          const rawTitle = s.note?.title || s.file.basename;
+          const name = rawTitle.length > 18 ? rawTitle.substring(0, 17) + '…' : rawTitle;
+          const fontSize = Math.max(9, Math.min(12, Math.round(10.5 * p.scale)));
+          ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+          ctx.textAlign = 'center';
+          const textW = ctx.measureText(name).width;
+          const pillW = textW + 10;
+          const pillH = fontSize + 5;
+          const pillX = p.sx - pillW / 2;
+          const pillY = p.sy + r + 4;
+
+          ctx.fillStyle = isHovered ? 'rgba(200, 125, 85, 0.88)' : 'rgba(20, 16, 14, 0.68)';
+          ctx.beginPath();
+          if (ctx.roundRect) {
+            ctx.roundRect(pillX, pillY, pillW, pillH, 4);
+          } else {
+            ctx.rect(pillX, pillY, pillW, pillH);
+          }
+          ctx.fill();
+
+          ctx.fillStyle = isHovered ? '#FFF' : `rgba(248, 240, 230, ${(0.88 * p.scale).toFixed(2)})`;
+          ctx.fillText(name, p.sx, pillY + fontSize);
+        }
+
+        // Hovered outer ring
+        if (isHovered) {
+          ctx.beginPath();
+          ctx.arc(p.sx, p.sy, r + 5, 0, Math.PI * 2);
+          ctx.strokeStyle = '#F5C85C';
+          ctx.lineWidth = 1.6;
+          ctx.stroke();
+          ctx.lineWidth = 1;
+        }
+      }
+    };
+
+    canvas.style.cursor = 'grab';
+    render();
+  }
+
+  // ── Canvas drawing helpers ──
+  _drawStarShape(ctx, cx, cy, points, outerR, innerR, color, alpha) {
+    ctx.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+      const angle = (Math.PI * i) / points - Math.PI / 2;
+      const r = i % 2 === 0 ? outerR : innerR;
+      const x = cx + r * Math.cos(angle);
+      const y = cy + r * Math.sin(angle);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = this._hexToRGBA(color, Math.min(1, alpha));
+    ctx.fill();
+  }
+
+  _hexToRGBA(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Cat Cafe Chat View — embedded chat with your AI team
+// ═══════════════════════════════════════════════
+class CafeChatView extends obsidian.ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this._pollTimer = null;
+    this._messages = [];
+    this._threadId = null;
+    this._autoScroll = true;
+    this._lastMessageId = null;
+    this._attachNote = false;
+    this._pendingContext = null;
+    this._resetRefs();
+  }
+
+  /** Element references of the connected layout; cleared on every rebuild so nothing writes into detached nodes. */
+  _resetRefs() {
+    this._strip = null;
+    this._presenceBadge = null;
+    this._seminarBtn = null;
+    this._dock = null;
+    this._noteLine = null;
+    this._presenceHint = null;
+    this._ctxBtn = null;
+    this._ctxLabel = null;
+    this._mentionBar = null;
+    this._inputTools = null;
+    this._input = null;
+    this._header = null;
+    this._config = null;
+    this._configStatus = null;
+    this._offlineManualBtn = null;
+    this._passageRow = null;
+  }
+
+  getViewType() { return VIEW_TYPE_CAFE_CHAT; }
+  getDisplayText() { return '☕ 猫咖对话'; }
+  getIcon() { return 'message-circle'; }
+
+  onload() {
+    super.onload();
+    // The study pod and the attach toggle follow the note being read, without re-rendering the conversation.
+    const sync = () => this._syncReadingNote();
+    this.registerEvent(this.app.workspace.on('active-leaf-change', sync));
+    this.registerEvent(this.app.workspace.on('file-open', sync));
+  }
+
+  async onOpen() {
+    const container = this.containerEl.children[1];
+    // A rebuild (reconnect, new address, offline and back) keeps what was being typed: the unsent draft and its
+    // selection, and an address typed into the settings but not saved yet (with its selection and focus).
+    if (this._input?.isConnected) this._draft = { value: this._input.value, start: this._input.selectionStart, end: this._input.selectionEnd };
+    const addressDraft = this._takeAddressDraft();
+    container.empty();
+    container.addClass('atlas-cafe-chat');
+    this._resetRefs();
+
+    if (!this.plugin.isCafeConnected) {
+      this.plugin.renderUnifiedNavBar(container, 'chat');
+      this._renderOffline(container);
+      if (addressDraft) {
+        this._offlineManualBtn?.click();  // opens 填写地址
+        this._putAddressDraft(addressDraft);
+      }
+      return;
+    }
+
+    const client = this.plugin.cafeClient;
+    if (!this._threadId && client.threads.length > 0) {
+      this._threadId = client.threads[0].id;
+    }
+
+    this._renderChat(container);
+    if (this._draft) {
+      this._input.value = this._draft.value;
+      this._input.setSelectionRange(this._draft.start, this._draft.end);
+      this._draft = null;
+    }
+    if (addressDraft) {
+      this._toggleConfig(true);
+      this._putAddressDraft(addressDraft);
+    }
+    // What is held locally (the messages last read for this thread, failed sends) shows at once, whether or not there
+    // is a thread to read from the cafe; the read below then brings it up to date.
+    this._renderMessages();
+    if (this._pendingContext) {
+      const ctx = this._pendingContext;
+      this._pendingContext = null;
+      await this.applyChatContext(ctx);
+    } else {
+      await this._loadMessages();
+    }
+    this._startPolling();
+  }
+
+  onClose() {
+    this._stopPolling();
+  }
+
+  /**
+   * Summoning only changes the companion strip and the @ list, so those are refreshed in place: the draft and its
+   * selection, the attach toggle and the reading position in the conversation stay. Anything else rebuilds the panel.
+   */
+  refresh(opts = {}) {
+    if (opts.companionsOnly && this._strip?.isConnected && this.plugin.isCafeConnected) {
+      this._renderCompanions();
+      this._renderHeader();  // the cafe may also have new or renamed threads
+      this._renderConfigStatus();  // status only: an address being typed keeps its value, selection and focus
+      return;
+    }
+    this.onOpen();
+  }
+
+  async applyChatContext(options = {}) {
+    if (!this._input) {
+      this._pendingContext = options;
+      return;
+    }
+    if (options.threadId && options.threadId !== this._threadId) {
+      this._threadId = options.threadId;
+      if (this._threadSelect) this._threadSelect.value = options.threadId;
+    }
+    if (options.attachFile) {
+      this._attachNote = true;
+      this._syncReadingNote();
+    }
+    if (options.targetCatId) {
+      this._insertMention(this.plugin.cafeClient?.findCat(options.targetCatId) || options.targetCatId);
+    }
+    if (options.prefillText) {
+      this._input.value = options.prefillText;
+      this._input.focus();
+    }
+    if (options.passage) {
+      this._renderPassage();
+      this._input.focus();
+    }
+    await this._loadMessages();
+  }
+
+  _renderOffline(container) {
+    const offline = container.createDiv('atlas-chat-offline');
+    offline.createDiv({ text: '☕', cls: 'atlas-chat-offline-icon' });
+    offline.createEl('h3', { text: '还没连上猫咖' });
+    offline.createEl('p', { text: '猫咖（Clowder AI）是猫猫们工作和聊天的地方。连上之后，伴读席、研讨会和对话都会出现在这里。' });
+    const lastError = this.plugin.settings.catCafeEnabled && this.plugin.cafeClient?.lastError;
+    if (lastError) offline.createEl('p', { text: `连不上 ${this.plugin.settings.catCafeAddress}：${lastError}`, cls: 'atlas-cafe-onboard-error' });
+
+    const actions = offline.createDiv('atlas-cafe-onboard-actions');
+    const connectBtn = actions.createEl('button', { text: '🔌 一键连接猫咖', cls: 'atlas-btn atlas-btn-primary' });
+    const manualBtn = actions.createEl('button', { text: '⚙️ 填写地址', cls: 'atlas-btn', attr: { 'aria-expanded': 'false', 'aria-controls': 'atlas-chat-config' } });
+    this._offlineManualBtn = manualBtn;  // onOpen reopens it to carry an unsaved address across a rebuild
+    const form = offline.createDiv({ cls: 'atlas-chat-config is-offline', attr: { id: 'atlas-chat-config', hidden: '' } });
+    manualBtn.addEventListener('click', () => {
+      const open = form.hidden;
+      form.hidden = !open;
+      manualBtn.setAttribute('aria-expanded', String(open));
+      if (open && !form.hasChildNodes()) this._renderAddressForm(form);
+      if (open) form.querySelector('input')?.focus();
+    });
+
+    const result = offline.createDiv('atlas-cafe-onboard-result');
+    connectBtn.addEventListener('click', async () => {
+      connectBtn.disabled = true;
+      connectBtn.textContent = '正在查找本机的猫咖…';
+      result.empty();
+      const outcome = await this.plugin.oneClickConnect();
+      if (outcome.status === 'connected') return;  // every view was refreshed into its connected state
+      connectBtn.disabled = false;
+      connectBtn.textContent = '🔌 再试一次';
+      if (outcome.status === 'failed') {
+        result.createEl('p', { text: `找到了猫咖（${outcome.address}），但没能连上：${outcome.error}。请确认它运行正常后再试。` });
+      } else {
+        this._renderInstallGuide(result);
+      }
+    });
+  }
+
+  /** Shown when no Cat Cafe answers on this machine: where to get Clowder AI, then come back and retry. */
+  _renderInstallGuide(parent) {
+    const guide = parent.createDiv('atlas-cafe-install');
+    guide.createEl('p', { text: '没有在本机找到正在运行的猫咖。还没安装的话：', cls: 'atlas-cafe-install-lead' });
+    const steps = guide.createEl('ol');
+    steps.createEl('li', { text: '从 Clowder AI 发布页下载桌面安装包并安装（Mac 选 .dmg：Apple 芯片用 arm64，Intel 用 x64；Windows 选 Setup .exe）' });
+    steps.createEl('li', { text: '打开猫咖，等它启动完成' });
+    steps.createEl('li', { text: '回到这里，点「再试一次」' });
+    const links = guide.createDiv('atlas-cafe-install-links');
+    const download = links.createEl('button', { text: '⬇️ 打开下载页', cls: 'atlas-btn atlas-btn-primary' });
+    download.addEventListener('click', () => window.open(CLOWDER_RELEASES_URL));
+    const docs = links.createEl('button', { text: '📖 安装说明', cls: 'atlas-btn' });
+    docs.addEventListener('click', () => window.open(CLOWDER_INSTALL_URL));
+    guide.createEl('p', {
+      text: '已经装好的话，先把猫咖打开再试；熟悉命令行也可以按安装说明从源码安装。地址不是默认的 localhost:3004 时，用「手动设置」填写。',
+      cls: 'atlas-cafe-install-note'
+    });
+  }
+
+  /** The passage attached to the next message: which one, and ✕; the draft's prompt asks what to do with it. */
+  _renderPassage() {
+    const row = this._passageRow;
+    if (!row) return;  // offline layout
+    const p = this.plugin.chatPassage;
+    row.empty();
+    row.hidden = !p;
+    if (this._input) {
+      this._input.placeholder = !p ? CHAT_PLACEHOLDER
+        : '告诉猫猫要做什么：讨论这段，还是直接改（如「这段逻辑通吗？」「帮我改得更简洁」），Enter 发送…';
+    }
+    this._syncReadingNote();  // the 📎 whole-note toggle steps aside while a passage is attached, and comes back after
+    if (!p) return;
+    row.createSpan({ text: '📌', cls: 'atlas-chat-passage-icon', attr: { 'aria-hidden': 'true' } });
+    row.createSpan({
+      text: `选段 · 《${p.basename}》${passageLines(p)} · ${p.text.length} 字`,
+      cls: 'atlas-chat-passage-label',
+      attr: { title: `只附带这一段，不附整篇笔记：\n${p.text.length > 400 ? `${p.text.slice(0, 400)}…` : p.text}` },
+    });
+    const clear = row.createEl('button', { text: '✕', cls: 'atlas-chat-passage-clear', attr: { title: '不附带这段', 'aria-label': '不附带这段' } });
+    clear.addEventListener('click', () => {
+      this.plugin.chatPassage = null;
+      this.plugin._renderChatPassage();
+    });
+  }
+
+  /** Keep what depends on the note being read in step with it: the note line, the seminar hint and the attach toggle. */
+  _syncReadingNote() {
+    if (!this._noteLine) return;  // offline layout
+    const file = this.app.workspace.getActiveFile();
+    const hasCats = Boolean(this.plugin.cafeClient?.cats?.length);
+    const present = this.plugin.getSummonedCats().length;
+    // 「当前笔记」, not 「正在伴读」: opening a note does not send it anywhere; the attach toggle decides that.
+    const note = file
+      ? `当前笔记 · ${file.basename}`
+      : (present || !hasCats) ? '可以直接聊天，也可打开笔记' : '点选头像召唤，也可直接开研讨会';
+    this._noteLine.setText(note);
+    this._noteLine.title = note;
+    this._seminarBtn.title = !hasCats
+      ? '猫咖尚未提供伙伴名单，暂时无法组织研讨会'
+      : file ? `围绕《${file.basename}》组织研讨会` : '组织多猫研讨会';
+
+    this._ctxBtn.hidden = !file || Boolean(this.plugin.chatPassage);  // with a passage attached only the passage goes
+    this._ctxBtn.setAttribute('aria-pressed', String(this._attachNote));
+    if (file) {
+      const label = `${this._attachNote ? '已附带' : '附带'} · ${file.basename}`;
+      const meaning = this._attachNote ? `发送时将附上《${file.basename}》` : `点击后，发送时附上《${file.basename}》`;
+      this._ctxLabel.setText(label);
+      this._ctxBtn.title = meaning;
+      this._ctxBtn.setAttribute('aria-label', `${label}（${meaning}）`);
+    }
+    // Nothing to attach and nobody to @: the toolbar row goes away instead of leaving a blank strip
+    this._inputTools.hidden = this._ctxBtn.hidden && this._mentionBar.hidden;
+  }
+
+  /** Cats, presence and @ targets — rebuilt in place whenever someone is summoned or dismissed. */
+  _renderCompanions() {
+    const client = this.plugin.cafeClient;
+    const cats = client?.cats || [];
+    const summoned = this.plugin.getSummonedCats();
+    const focusedCat = this._dock?.contains(document.activeElement) ? document.activeElement.dataset.catId : null;
+
+    this._dock.empty();
+    if (!cats.length) this._dock.createSpan({ text: '猫咖尚未提供伙伴名单', cls: 'atlas-companion-empty' });
+    for (const cat of cats) {
+      const profile = SpecParser.resolveCatProfile(cat);
+      const name = cat.nickname || profile?.nickname || cat.displayName || cat.name || cat.id;
+      const on = this.plugin.isCatSummoned(cat.id);
+      const slot = this._dock.createEl('button', {
+        cls: `atlas-companion-slot${on ? ' is-summoned' : ''}`,
+        attr: {
+          'aria-pressed': String(on),
+          'aria-label': `${name}；点击召唤或取消，右键提问`,
+          title: profile?.specialty ? `${name} · ${profile.specialty}` : name,
+        },
+      });
+      slot.dataset.catId = cat.id;
+      renderCatAvatar3D(slot, cat, client, 'mini');
+      slot.createSpan({ text: name, cls: 'atlas-companion-slot-name' });
+      slot.addEventListener('click', () => this.plugin.toggleSummonCat(cat.id));
+      slot.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._askCat(cat);
+      });
+      slot.addEventListener('focus', () => slot.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+      if (cat.id === focusedCat) slot.focus({ preventScroll: true });
+    }
+
+    const hasCats = cats.length > 0;
+    this._presenceBadge.hidden = !hasCats;  // with no cats offered, 「未召唤」 would suggest someone to summon
+    this._presenceBadge.setText(summoned.length ? `${summoned.length} 只在场` : '未召唤');
+    this._presenceBadge.toggleClass('is-empty', !summoned.length);
+    this._presenceHint.hidden = !hasCats;
+    this._presenceHint.setText(summoned.length ? '点选召唤 · 右键提问' : '点选头像召唤');
+    this._seminarBtn.disabled = !hasCats;
+
+    // @ targets: the cats in attendance, otherwise the first four on offer. A chip only inserts the mention.
+    this._mentionBar.empty();
+    const targets = summoned.length ? summoned : cats.slice(0, 4);
+    this._mentionBar.hidden = !targets.length;
+    for (const cat of targets) {
+      const profile = SpecParser.resolveCatProfile(cat);
+      const name = cat.nickname || profile?.nickname || cat.displayName || cat.name || cat.id;
+      const chip = this._mentionBar.createEl('button', {
+        text: `@${name}`,
+        cls: 'atlas-chat-mention-chip',
+        attr: { title: `插入 ${profile?.mention || '@' + name}` },
+      });
+      chip.addEventListener('click', () => this._insertMention(cat));
+      chip.addEventListener('focus', () => chip.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+    }
+    this._syncReadingNote();  // the note line's wording depends on who is present
+  }
+
+  /** Prefix the draft with a cat's @mention (once) and return to the draft. Nothing is sent. */
+  _insertMention(cat) {
+    if (!this._input) return;
+    const profile = SpecParser.resolveCatProfile(cat);
+    const name = cat?.nickname || profile?.nickname || cat?.displayName || cat?.name || cat?.id || cat;
+    const mention = profile?.mention || `@${name}`;
+    if (!this._input.value.includes(mention)) {
+      this._input.value = `${mention} ${this._input.value}`.trim() + ' ';
+    }
+    this._input.focus();
+  }
+
+  /** Right-click on a cat: ask it, with the note being read attached when there is one. */
+  _askCat(cat) {
+    if (this.app.workspace.getActiveFile()) this._attachNote = true;
+    this._syncReadingNote();
+    this._insertMention(cat);
+  }
+
+  _renderChat(container) {
+    this.plugin.renderUnifiedNavBar(container, 'chat');
+
+    // ── 伴读席: presence + the one seminar entry · scrollable cats · the note being read ──
+    this._strip = container.createEl('section', { cls: 'atlas-companion-strip', attr: { 'aria-label': '伴读席' } });
+    const top = this._strip.createDiv('atlas-companion-strip-top');
+    const titleGroup = top.createDiv('atlas-companion-title-group');
+    titleGroup.createSpan({ text: '🐾 伴读席', cls: 'atlas-companion-strip-title' });
+    this._presenceBadge = titleGroup.createSpan({ cls: 'atlas-companion-presence-badge' });
+    this._seminarBtn = top.createEl('button', { text: '研讨会', cls: 'atlas-companion-seminar-pill' });
+    this._seminarBtn.addEventListener('click', () => {
+      const file = this.app.workspace.getActiveFile();  // the note being read now, not when the strip was built
+      const passage = this.plugin.chatPassage;  // a passage attached here goes to the seminar instead of the whole note
+      this.plugin.openSeminarModal({ file, attachNote: !passage && Boolean(file), passage });
+    });
+    this._dock = this._strip.createDiv({ cls: 'atlas-companion-dock', attr: { 'aria-label': '可选伙伴；可横向滚动' } });
+    const context = this._strip.createDiv('atlas-companion-context-bar');
+    this._noteLine = context.createSpan({ cls: 'atlas-companion-note' });
+    this._presenceHint = context.createSpan({ cls: 'atlas-companion-hint' });
+
+    // ── Thread row (title shrinks; Hub and ⚙ stay) + the in-panel connection settings ⚙ opens ──
+    this._header = container.createDiv('atlas-chat-header');
+    this._config = container.createDiv({ cls: 'atlas-chat-config', attr: { id: 'atlas-chat-config', hidden: '' } });
+    this._renderHeader();
+
+    // ── Message area ──
+    this._messageArea = container.createDiv('atlas-chat-messages');
+    this._messageArea.addEventListener('scroll', () => {
+      const el = this._messageArea;
+      this._autoScroll = (el.scrollHeight - el.scrollTop - el.clientHeight) < 60;
+    });
+
+    // ── Input area: one-row toolbar (attach toggle · scrollable @ list), then draft + send ──
+    const inputArea = container.createDiv('atlas-chat-input-area');
+    // The passage attached to the next message (editor: 和猫猫讨论 / 请猫猫修改选中段落); hidden when there is none
+    this._passageRow = inputArea.createDiv({ cls: 'atlas-chat-passage', attr: { hidden: '' } });
+    const inputTools = this._inputTools = inputArea.createDiv('atlas-chat-input-tools');
+    this._ctxBtn = inputTools.createEl('button', { cls: 'atlas-chat-ctx-btn', attr: { 'aria-pressed': 'false' } });
+    this._ctxBtn.createSpan({ text: '📎', attr: { 'aria-hidden': 'true' } });
+    this._ctxLabel = this._ctxBtn.createSpan({ cls: 'atlas-chat-ctx-label' });
+    this._ctxBtn.addEventListener('click', () => {
+      this._attachNote = !this._attachNote;
+      this._syncReadingNote();
+    });
+    this._mentionBar = inputTools.createDiv({ cls: 'atlas-chat-mention-bar', attr: { role: 'group', 'aria-label': '插入提问对象；可横向滚动' } });
+
+    const inputRow = inputArea.createDiv('atlas-chat-input-row');
+    this._input = inputRow.createEl('textarea', {
+      cls: 'atlas-chat-input',
+      attr: { placeholder: CHAT_PLACEHOLDER, rows: '2', 'aria-label': '消息草稿' }
+    });
+    this._input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this._sendMessage();
+      }
+    });
+
+    const sendBtn = inputRow.createEl('button', {
+      text: '发送',
+      cls: 'atlas-chat-send-btn'
+    });
+    sendBtn.addEventListener('click', () => this._sendMessage());
+
+    this._renderCompanions();  // fills the strip and the @ list, then the note-dependent parts
+    this._renderPassage();
+  }
+
+  /** Thread picker, Hub and ⚙ — rebuilt in place when the cafe's thread list changes. */
+  _renderHeader() {
+    const header = this._header;
+    const client = this.plugin.cafeClient;
+    if (!header || !client) return;
+    header.empty();
+    this._threadSelect = null;
+    if (!client.threads.some((t) => t.id === this._threadId)) {
+      // The thread on screen is gone (or there was none yet): follow the first one, or show no thread at all when the
+      // cafe has none left for this vault. Either way its messages leave the screen and nothing more is sent to or read
+      // from it (see _isCurrent); the unsent draft stays.
+      const next = client.threads[0] || null;
+      if ((next?.id ?? null) !== (this._threadId ?? null)) {
+        if (this._threadId) new obsidian.Notice(next ? `💬 当前对话已不在猫咖里，已切到「${next.title || '对话'}」` : '💬 当前对话已不在猫咖里');
+        this._threadId = next?.id ?? null;
+        this._messages = [];
+        this._lastMessageId = null;
+        this._renderMessages();
+        if (next) this._loadMessages();
+      }
+    }
+
+    if (client.threads.length > 1) {
+      this._threadSelect = header.createEl('select', { cls: 'atlas-chat-thread-select', attr: { 'aria-label': '选择对话' } });
+      for (const t of client.threads) {
+        const opt = this._threadSelect.createEl('option', { text: t.title || t.id, attr: { value: t.id } });
+        if (t.id === this._threadId) opt.selected = true;
+      }
+      this._threadSelect.addEventListener('change', async () => {
+        this._threadId = this._threadSelect.value;
+        this._messages = [];
+        this._lastMessageId = null;
+        await this._loadMessages();
+      });
+    } else {
+      const title = client.threads.length === 1 ? `💬 ${client.threads[0].title || '对话'}` : '💬 猫咖对话流';
+      header.createEl('span', { text: title, cls: 'atlas-chat-thread-name', attr: { title } });
+    }
+
+    const hubBtn = header.createEl('button', {
+      text: '↗ Hub',
+      cls: 'atlas-chat-hub-btn',
+      attr: { title: '在浏览器中打开此对话' }
+    });
+    hubBtn.addEventListener('click', () => {
+      if (this._threadId) {
+        // Same page route the Hub web app links to: /thread/<id> (singular). /threads/<id> is a 404.
+        window.open(`${client.getHubUrl()}/thread/${encodeURIComponent(this._threadId)}`);
+      } else {
+        window.open(client.getHubUrl());
+      }
+    });
+
+    const cfgBtn = header.createEl('button', {
+      text: '⚙',
+      cls: 'atlas-chat-config-btn',
+      attr: { title: '猫咖连接与设置', 'aria-label': '猫咖连接与设置', 'aria-controls': 'atlas-chat-config', 'aria-expanded': String(Boolean(this._config && !this._config.hidden)) },
+    });
+    cfgBtn.addEventListener('click', () => this._toggleConfig());
+  }
+
+  _toggleConfig(open = this._config.hidden) {
+    this._config.hidden = !open;
+    this._header.querySelector('.atlas-chat-config-btn')?.setAttribute('aria-expanded', String(open));
+    if (open) this._renderConfig();
+  }
+
+  /** In-panel connection settings (status · refresh · address · disconnect), so nobody has to dig through Obsidian's settings. */
+  _renderConfig() {
+    const box = this._config;
+    const plugin = this.plugin;
+    box.empty();
+    this._configStatus = box.createEl('p', { cls: 'atlas-chat-config-status' });
+    this._renderConfigStatus();
+    const actions = box.createDiv('atlas-chat-config-row');
+    const refreshBtn = actions.createEl('button', { text: '↻ 刷新伙伴与对话', cls: 'atlas-chat-config-action' });
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      const r = await plugin.refreshCafe();  // panels, and this box, refresh in place
+      new obsidian.Notice(r.ok ? `↻ 已刷新：${r.cats} 只伙伴 · ${r.threads} 条对话` : `⚠️ 刷新失败：${r.error || '无法连接猫咖'}`);
+      if (refreshBtn.isConnected) refreshBtn.disabled = false;
+    });
+    const offBtn = actions.createEl('button', { text: '断开连接', cls: 'atlas-chat-config-action' });
+    offBtn.addEventListener('click', async () => {
+      plugin.settings.catCafeEnabled = false;
+      await plugin.saveSettings();
+      await plugin._disconnectCafe();  // every panel rebuilds into its offline state
+    });
+    this._renderAddressForm(box);
+  }
+
+  /** The status line alone: what a roster refresh updates, leaving an address being typed untouched. */
+  _renderConfigStatus() {
+    if (!this._configStatus?.isConnected) return;
+    const plugin = this.plugin;
+    const client = plugin.cafeClient;
+    this._configStatus.setText(plugin.isCafeConnected
+      ? `✅ 已连接 · ${plugin.settings.catCafeAddress} · ${client.cats.length} 只伙伴 · ${client.threads.length} 条对话`
+      : `❌ 未连接：${client?.lastError || '连接失败'}`);
+  }
+
+  /** Address field + 保存并连接 (also in the offline panel), plus the way to the rest of the plugin settings. */
+  _renderAddressForm(parent) {
+    const plugin = this.plugin;
+    parent.createEl('label', { text: '猫咖地址', cls: 'atlas-chat-config-label', attr: { for: 'atlas-chat-config-address' } });
+    const row = parent.createDiv('atlas-chat-config-row');
+    const input = row.createEl('input', {
+      cls: 'atlas-chat-config-input',
+      attr: { id: 'atlas-chat-config-address', type: 'text', value: plugin.settings.catCafeAddress || '', placeholder: 'http://localhost:3004', spellcheck: 'false' },
+    });
+    const go = row.createEl('button', { text: '保存并连接', cls: 'atlas-chat-config-action' });
+    const connect = async () => {
+      const address = input.value.trim().replace(/\/+$/, '');
+      if (!address) return;
+      go.disabled = true;
+      plugin.settings.catCafeAddress = address;
+      plugin.settings.catCafeEnabled = true;
+      await plugin.saveSettings();
+      await plugin._initCafeConnection();  // panels rebuild; a failure shows in the offline panel
+    };
+    go.addEventListener('click', connect);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        connect();
+      }
+    });
+    const more = parent.createEl('button', { text: '更多插件设置…', cls: 'atlas-chat-config-action is-link' });
+    more.addEventListener('click', () => {
+      this.app.setting?.open();
+      this.app.setting?.openTabById('clowder-atlas');
+    });
+  }
+
+  /** An address typed but not saved yet, with its selection and focus (null when the field shows the saved one). */
+  _takeAddressDraft() {
+    const input = this.containerEl.querySelector('.atlas-chat-config-input');
+    if (!input || input.closest('.atlas-chat-config')?.hidden) return null;  // a closed form means the edit was let go
+    if (input.value === (this.plugin.settings.catCafeAddress || '')) return null;
+    return { value: input.value, start: input.selectionStart, end: input.selectionEnd, focused: document.activeElement === input };
+  }
+
+  _putAddressDraft(draft) {
+    const input = this.containerEl.querySelector('.atlas-chat-config-input');
+    if (!input) return;
+    input.value = draft.value;
+    input.setSelectionRange(draft.start, draft.end);
+    if (draft.focused) input.focus();
+  }
+
+  async _sendMessage() {
+    const content = this._input.value.trim();
+    const passage = this.plugin.chatPassage;  // the passage attached to this message, if any
+    // a passage may go without words: the cats are then asked what they make of it
+    if ((!content && !passage) || !this.plugin.isCafeConnected) return;
+    // Where this message goes is fixed when 发送 is pressed, before anything is awaited: this cafe, this thread.
+    const client = this.plugin.cafeClient;
+    const cafe = client.baseUrl;
+    const threadId = this._threadId ?? null;
+
+    const request = passage ? passageMessage(passage, content) : content;
+    let fullContent = request;
+    if (this._attachNote && !passage) {  // a passage goes alone — never with the whole note, whatever 📎 was left at
+      const file = this.app.workspace.getActiveFile();
+      if (file) {
+        const noteContent = await this.app.vault.read(file);
+        const preview = noteContent.substring(0, 1000);
+        fullContent = `[关于笔记「${file.basename}」]\n\n${preview}${noteContent.length > 1000 ? '\n...(truncated)' : ''}\n\n---\n${request}`;
+      }
+    }
+
+    // If user didn't write an explicit @handle and has summoned companion cats, append their @mentions on standalone lines so they respond!
+    if (!/@\S+/.test(content)) {
+      const summoned = this.plugin.getSummonedCats();
+      if (summoned.length > 0) {
+        const mentions = summoned.map(c => {
+          const p = SpecParser.resolveCatProfile(c);
+          return p?.mention || `@${c.nickname || c.name || c.id}`;
+        });
+        fullContent += '\n\n' + mentions.join('\n');
+      }
+    }
+
+    this._input.value = '';
+    this._input.focus();
+    if (passage && this.plugin.chatPassage === passage) {  // a passage goes with this one message
+      this.plugin.chatPassage = null;
+      this.plugin._renderChatPassage();
+    }
+
+    // Optimistic local render
+    const sentAt = Date.now();
+    const id = `send-${sentAt}-${Math.random().toString(36).slice(2, 6)}`;
+    this._appendMessage({ id, type: 'user', content: passage ? passageShown(passage, content) : content, from: { kind: 'user' }, lifecycle: { startedAt: sentAt }, _pending: true });
+    // A passage request gets its own identity; once the cafe has stored this message, its id is bound to the request,
+    // so a 修改稿 answering it (and only such a reply) can replace this passage.
+    const revisionId = passage ? `rq-${sentAt}-${Math.random().toString(36).slice(2, 6)}` : null;
+    if (revisionId) {
+      await this.plugin.setRevisionTarget({ id: revisionId, cafe, threadId, path: passage.path, original: passage.text, from: passage.from, to: passage.to, at: sentAt, messageIds: [] });
+    }
+
+    try {
+      // the connection changed while the note was being read: never send to whatever is connected now
+      if (this.plugin.cafeClient !== client) throw new Error('发送前猫咖连接已切换');
+      const body = { content: fullContent };
+      if (threadId) body.threadId = threadId;
+
+      const resp = await client._fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      console.log('Clowder Atlas: Message sent, queued to', resp.entries?.map(e => e.targetCatId).join(', '));
+      if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
+    } catch (err) {
+      // It did not land. It is kept — the text as typed, what was sent, its thread and the reason — as a failed message
+      // in that conversation, to resend, put back into the draft box (after a newer draft, never over it) or delete.
+      // The record lives with the plugin and in its data, not in this panel's input or layout, so going offline,
+      // reconnecting or restarting Obsidian does not lose it.
+      const reason = err.message || '未知错误';
+      new obsidian.Notice(`⚠️ 消息发送失败：${reason}。已留在对话里，可以重发或放回输入框`);
+      await this.plugin.recordFailedSend({ id, cafe, threadId, content, fullContent, ...(passage ? { passage: { ...passage }, revisionId } : {}), error: reason, at: sentAt });
+    }
+  }
+
+  /**
+   * Failed sends that belong on screen here: this thread's, plus those with no thread here to go to (sent to the default
+   * lobby, to a thread since deleted, or to another cafe — or from before sources were kept), so a failed text is never
+   * out of sight.
+   */
+  _failedHere() {
+    const client = this.plugin.cafeClient;
+    const ids = new Set((client?.threads || []).map((t) => t.id));
+    const here = this._threadId ?? null;
+    return this.plugin.getFailedSends().filter((r) => r.cafe !== client?.baseUrl
+      || (r.threadId ?? null) === here || !ids.has(r.threadId));
+  }
+
+  /** Where a failed send stands from here: null (this thread), 'lobby', 'gone' (thread deleted) or 'elsewhere' (other cafe or unknown). */
+  _failedMessage(record) {
+    const sameCafe = Boolean(record.cafe) && record.cafe === this.plugin.cafeClient?.baseUrl;
+    const where = !sameCafe ? 'elsewhere'
+      : (record.threadId ?? null) === (this._threadId ?? null) ? null : record.threadId ? 'gone' : 'lobby';
+    const shown = record.passage ? passageShown(record.passage, record.content) : record.content;
+    return { id: record.id, type: 'user', content: shown, from: { kind: 'user' }, lifecycle: { startedAt: record.at }, _failed: { record, where } };
+  }
+
+  /**
+   * Marks a failed send and gives it its ways back: 重发 (same text, same cafe, same thread or its lobby), 放回输入框, 删除.
+   * While a resend is on its way every button waits, however often the messages are redrawn meanwhile.
+   */
+  _renderFailedParts(bubble, footerRow, { record, where }) {
+    bubble.addClass('is-failed');
+    const busy = this.plugin.isResending(record.id);
+    const place = where === 'elsewhere' ? (record.cafe ? `（原本发往另一个猫咖：${record.cafe}）` : '（来源猫咖未记录）')
+      : where === 'gone' ? '（原对话已不在猫咖里）' : where === 'lobby' ? '（发往猫咖默认大厅）' : '';
+    footerRow.createEl('span', { text: busy ? '↻ 正在重发…' : `⚠️ 发送失败${place}：${record.error}`, cls: 'atlas-chat-failed-note' });
+    const row = bubble.createDiv('atlas-chat-msg-actions');
+    if (where === null || where === 'lobby') {  // never retargeted: no 重发 to a deleted thread or another cafe
+      const retry = row.createEl('button', { text: busy ? '重发中…' : '↻ 重发', cls: 'atlas-chat-action-pill', attr: { title: '把原来的内容再发一次，发往原来的猫咖和对话' } });
+      retry.disabled = busy;
+      retry.addEventListener('click', () => this._resendFailed(record));
+    }
+    const back = row.createEl('button', { text: '↩ 放回输入框', cls: 'atlas-chat-action-pill', attr: { title: '放回输入框；已经写了新内容的话，接在后面' } });
+    back.disabled = busy;
+    back.addEventListener('click', () => this._putBackFailed(record));
+    const drop = row.createEl('button', { text: '删除', cls: 'atlas-chat-action-pill' });
+    drop.disabled = busy;
+    drop.addEventListener('click', () => this.plugin.dropFailedSend(record.id));
+  }
+
+  /** Back into the draft box, after whatever is being written there (never over it); the failed message then goes. */
+  async _putBackFailed(record) {
+    if (!this._input) return;
+    if (record.passage) {  // the passage it carried comes back too — but never over another one attached meanwhile
+      const attached = this.plugin.chatPassage;
+      if (attached && (attached.path !== record.passage.path || attached.text !== record.passage.text)) {
+        new obsidian.Notice('💡 输入框上已经附着另一段选段：先发送或去掉它，再放回这条');
+        return;
+      }
+      this.plugin.chatPassage = { ...record.passage };
+      this.plugin._renderChatPassage();
+    }
+    if (record.content) {
+      const draft = this._input.value.replace(/\s+$/, '');
+      this._input.value = draft ? `${draft}\n\n${record.content}` : record.content;
+    }
+    this._input.focus();
+    this._input.setSelectionRange(this._input.value.length, this._input.value.length);
+    await this.plugin.dropFailedSend(record.id);
+  }
+
+  /**
+   * Sends exactly what failed (with the note and @ it carried) to the cafe and thread it was meant for, one try at a
+   * time. A record from another cafe, or without a source, is never sent to the cafe connected now.
+   */
+  async _resendFailed(record) {
+    const plugin = this.plugin;
+    const client = plugin.cafeClient;
+    if (!client || !plugin.isCafeConnected || !record.cafe || record.cafe !== client.baseUrl) return;
+    if (!plugin.beginResend(record.id)) return;  // already on its way (its button may have been redrawn meanwhile)
+    try {
+      const body = { content: record.fullContent || record.content };
+      if (record.threadId) body.threadId = record.threadId;
+      const resp = await client._fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (record.revisionId) await plugin.bindRevisionMessage(record.revisionId, resp?.userMessageId);  // it is the same request, sent again
+      plugin.endResend(record.id);
+      await plugin.dropFailedSend(record.id);
+      new obsidian.Notice('↻ 已重发');
+      if ((record.threadId ?? null) === (this._threadId ?? null)) this._loadMessages();
+    } catch (err) {
+      plugin.endResend(record.id);
+      const reason = err.message || '未知错误';
+      new obsidian.Notice(`⚠️ 重发失败：${reason}`);
+      // still kept, with the new reason — unless it was deleted meanwhile
+      if (plugin.getFailedSends().some((r) => r.id === record.id)) await plugin.recordFailedSend({ ...record, error: reason });
+      else plugin._renderChatMessages();
+    }
+  }
+
+  /** A message read may land only while its thread is still the one on screen, on the same connection. */
+  _isCurrent(threadId, client) {
+    return threadId === this._threadId && client === this.plugin.cafeClient;
+  }
+
+  async _loadMessages() {
+    const threadId = this._threadId, client = this.plugin.cafeClient;
+    if (!threadId || !this.plugin.isCafeConnected) {
+      if (!threadId) {  // no thread to read from: what is held locally (failed sends) still shows
+        this._messages = [];
+        this._renderMessages();
+      }
+      return;
+    }
+    try {
+      const data = await client._fetch(
+        `/api/messages?threadId=${encodeURIComponent(threadId)}&limit=30&order=asc`
+      );
+      if (!this._isCurrent(threadId, client)) return;  // switched, cleared or disconnected meanwhile
+      this._messages = (data && data.messages) || [];
+      this._renderMessages();
+    } catch (err) {
+      console.warn('Clowder Atlas: Failed to load messages:', err.message);
+    }
+  }
+
+  _renderMessages() {
+    if (!this._messageArea) return;
+    this._messageArea.empty();
+
+    const failed = this._failedHere();
+    if (this._messages.length === 0 && failed.length === 0) {
+      this._messageArea.createDiv({
+        text: this._threadId
+          ? '暂无消息 — 召唤猫猫伴读或发起研讨会，讨论结论可存为待结晶笔记 💎'
+          : '这个库在猫咖里还没有对话 — 发出的消息会进入猫咖的默认大厅',
+        cls: 'atlas-chat-empty'
+      });
+      return;
+    }
+
+    const client = this.plugin.cafeClient;
+    for (const msg of this._messages) {
+      this._renderOneMessage(msg, client);
+    }
+    for (const record of failed) {
+      this._renderOneMessage(this._failedMessage(record), client);
+    }
+
+    if (this._autoScroll) {
+      this._messageArea.scrollTop = this._messageArea.scrollHeight;
+    }
+    this._lastMessageId = this._messages[this._messages.length - 1]?.id;
+  }
+
+  _renderOneMessage(msg, client) {
+    const isUser = msg.type === 'user';
+    const bubble = this._messageArea.createDiv(`atlas-chat-bubble ${isUser ? 'is-user' : 'is-cat'}`);
+
+    let catData = null;
+    if (!isUser) {
+      const catId = msg.catId || msg.from?.catId || '';
+      catData = client?.cats?.find(c => c.id === catId);
+      const profile = SpecParser.resolveCatProfile(catData || catId);
+      const headerRow = bubble.createDiv('atlas-chat-cat-header');
+      renderCatAvatar3D(headerRow, catData || { color: { primary: profile?.color || '#C87D55' } }, client, 'chat');
+      const name = catData?.nickname || profile?.nickname || catData?.displayName || catData?.name || catId || '猫猫';
+      headerRow.createEl('span', { text: name, cls: 'atlas-chat-cat-name' });
+      if (profile?.breed) {
+        headerRow.createEl('span', { text: profile.breed, cls: 'atlas-chat-cat-breed' });
+      }
+    }
+
+    const content = msg.content || '';
+    const isLong = content.length > 600;
+    let expanded = false;
+    const textEl = bubble.createDiv('atlas-chat-text');
+    textEl.textContent = isLong ? content.substring(0, 600) + '…' : content;
+
+    if (isLong) {
+      const toggleBtn = bubble.createEl('button', {
+        text: `📖 展开全文 (${content.length} 字)`,
+        cls: 'atlas-chat-expand-btn'
+      });
+      toggleBtn.addEventListener('click', () => {
+        expanded = !expanded;
+        textEl.textContent = expanded ? content : content.substring(0, 600) + '…';
+        toggleBtn.textContent = expanded ? '🔼 收起全文' : `📖 展开全文 (${content.length} 字)`;
+      });
+    }
+
+    // Footer row: timestamp + Knowledge Crystallization actions (for cat replies)
+    const footerRow = bubble.createDiv('atlas-chat-bubble-footer');
+    const ts = msg.lifecycle?.startedAt || msg.lifecycle?.completedAt;
+    if (ts) {
+      const timeStr = new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      footerRow.createEl('span', { text: timeStr, cls: 'atlas-chat-time' });
+    }
+
+    if (msg._pending) {
+      footerRow.createEl('span', { text: '发送中…', cls: 'atlas-chat-pending' });
+    }
+    if (msg._failed) this._renderFailedParts(bubble, footerRow, msg._failed);
+
+    // Bring cat insights back into Obsidian: save as a pending note (crystallized after review) or append.
+    if (!isUser && content.trim().length > 0) {
+      const actRow = bubble.createDiv('atlas-chat-msg-actions');
+      const saveBtn = actRow.createEl('button', {
+        text: '💎 存为待结晶笔记',
+        cls: 'atlas-chat-action-pill',
+        attr: { title: '存进待结晶目录并关联当前笔记；审阅后在透镜里点亮结晶' }
+      });
+      saveBtn.addEventListener('click', () => {
+        this.plugin.saveMessageAsPendingNote(msg, catData, this._threadId);
+      });
+
+      const appBtn = actRow.createEl('button', {
+        text: '📥 摘录到当前笔记',
+        cls: 'atlas-chat-action-pill',
+        attr: { title: '将这条猫猫回复作为引用块追加到当前打开的笔记末尾' }
+      });
+      appBtn.addEventListener('click', () => {
+        this.plugin.appendMessageToActiveNote(msg, catData);
+      });
+      this._renderRevisionActions(actRow, msg, content);
+    }
+  }
+
+  /**
+   * A cat's 修改稿 can replace the passage of the request it answers — found through the messages the reply names, never
+   * by when it arrived — after a side-by-side check; or be copied. The version now in the note shows as 已采用, and
+   * another cat's version for the same request can still be put in its place. An unmatched reply is copy-only.
+   */
+  _renderRevisionActions(row, msg, content) {
+    const revised = extractRevision(content);
+    if (revised === null) return;
+    const { target, reason } = this.plugin.revisionTargetForReply(this.plugin.cafeClient?.baseUrl, msg);
+    if (target) {
+      const inUse = target.original === revised;
+      const apply = row.createEl('button', {
+        text: inUse ? '✓ 已采用' : '✏️ 替换原段落',
+        cls: 'atlas-chat-action-pill',
+        attr: { title: inUse ? '笔记里现在就是这一版' : `先对照原文，再替换《${target.path.split('/').pop().replace(/\.md$/, '')}》${passageLines(target)}` },
+      });
+      apply.disabled = inUse;
+      apply.addEventListener('click', () => new RevisionModal(this.app, this.plugin, target.id, revised).open());
+    }
+    const copy = row.createEl('button', {
+      text: '📋 复制修改稿',
+      cls: 'atlas-chat-action-pill',
+      attr: target ? {} : { title: reason === 'several'
+        ? '这条回复同时回答了几次选段请求，分不清改的是哪一段：可以复制后自己粘贴'
+        : '分不清这份修改稿对应哪一段选段：可以复制后自己粘贴' },
+    });
+    copy.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(revised);
+      new obsidian.Notice('📋 修改稿已复制');
+    });
+  }
+
+  _appendMessage(msg) {
+    if (!this._messageArea) return;
+    const empty = this._messageArea.querySelector('.atlas-chat-empty');
+    if (empty) empty.remove();
+
+    const client = this.plugin.cafeClient;
+    this._renderOneMessage(msg, client);
+    this._messageArea.scrollTop = this._messageArea.scrollHeight;
+  }
+
+  _startPolling() {
+    this._stopPolling();
+    this._pollTimer = setInterval(async () => {
+      await this._pollNewMessages();
+    }, 5000);
+  }
+
+  _stopPolling() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
+  }
+
+  async _pollNewMessages() {
+    const threadId = this._threadId, client = this.plugin.cafeClient;
+    if (!threadId || !this.plugin.isCafeConnected) return;
+    try {
+      const data = await client._fetch(
+        `/api/messages?threadId=${encodeURIComponent(threadId)}&limit=30&order=asc`
+      );
+      if (!this._isCurrent(threadId, client)) return;
+      const newMessages = (data && data.messages) || [];
+      if (newMessages.length !== this._messages.length ||
+          (newMessages.length > 0 && newMessages[newMessages.length - 1].id !== this._lastMessageId)) {
+        this._messages = newMessages;
+        this._renderMessages();
+      }
+    } catch (err) {
+      // Silent fail on poll
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Revision Modal — a cat's 修改稿 next to the passage, then replace it in the note
+// ═══════════════════════════════════════════════
+class RevisionModal extends obsidian.Modal {
+  /** `requestId`: the passage request this 修改稿 answers; it is read afresh when the check opens and again on 替换. */
+  constructor(app, plugin, requestId, revised) {
+    super(app);
+    this.plugin = plugin;
+    this.requestId = requestId;
+    this.revised = revised;
+  }
+
+  async onOpen() {
+    const { contentEl } = this;
+    const t = this.plugin.getRevisionTargetById(this.requestId);
+    contentEl.empty();
+    contentEl.addClass('atlas-revision-modal');
+    const name = t ? t.path.split('/').pop().replace(/\.md$/, '') : '';
+    contentEl.createEl('h3', { text: t ? `✏️ 替换《${name}》${passageLines(t)}` : '✏️ 替换原段落' });
+    const file = t ? this.app.vault.getAbstractFileByPath(t.path) : null;
+    const found = !t ? { offset: -1, reason: '这份修改稿对应的选段记录已不存在' }
+      : file instanceof obsidian.TFile ? locatePassage(await this.plugin._currentText(file), t)
+      : { offset: -1, reason: `找不到笔记「${t.path}」` };
+    if (found.offset < 0) contentEl.createEl('p', { text: `⚠️ ${found.reason}。可以复制修改稿，自己粘贴到合适的位置。`, cls: 'atlas-revision-problem' });
+    if (t) {
+      contentEl.createDiv({ text: '原文', cls: 'atlas-revision-label' });
+      contentEl.createEl('pre', { text: t.original, cls: 'atlas-revision-text' });
+    }
+    contentEl.createDiv({ text: '修改稿', cls: 'atlas-revision-label' });
+    contentEl.createEl('pre', { text: this.revised, cls: 'atlas-revision-text is-revised' });
+    const row = contentEl.createDiv('atlas-revision-actions');
+    const replace = row.createEl('button', { text: '替换', cls: 'mod-cta' });
+    replace.disabled = found.offset < 0;
+    replace.addEventListener('click', async () => {
+      replace.disabled = true;
+      const result = await this.plugin.applyRevision({ id: this.requestId }, this.revised);
+      if (!result.ok) {
+        new obsidian.Notice(`⚠️ 没有替换：${result.reason}`);
+        replace.disabled = false;
+        return;
+      }
+      new obsidian.Notice(`✏️ 已替换《${name}》里的这段，Cmd+Z 可以撤销`);
+      this.close();
+      this.plugin._renderChatMessages();
+    });
+    const copy = row.createEl('button', { text: '复制修改稿' });
+    copy.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(this.revised);
+      new obsidian.Notice('📋 修改稿已复制');
+    });
+    const cancel = row.createEl('button', { text: '取消' });
+    cancel.addEventListener('click', () => this.close());
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Seminar Modal — organize multi-cat discussions
+// ═══════════════════════════════════════════════
+class SeminarModal extends obsidian.Modal {
+  constructor(app, plugin, optionsOrSet) {
+    super(app);
+    this.plugin = plugin;
+    const isSet = optionsOrSet instanceof Set;
+    const opts = isSet ? { preSummoned: optionsOrSet } : (optionsOrSet || {});
+    const initialIds = opts.preSummoned
+      ? [...opts.preSummoned]
+      : [...this.plugin.summonedCatIds];
+
+    // If no cats are currently summoned, pre-select first 3 online cats so user can start in 1 click
+    if (initialIds.length === 0 && this.plugin.cafeClient?.cats?.length) {
+      initialIds.push(...this.plugin.cafeClient.cats.slice(0, 3).map(c => c.id));
+    }
+
+    this._selected = new Set(initialIds);
+    this._targetFile = opts.file || this.app.workspace.getActiveFile();
+    this._attachNote = opts.attachNote !== undefined ? Boolean(opts.attachNote) : Boolean(this._targetFile);
+    this._defaultTopic = opts.defaultTopic || '';
+    this._passage = opts.passage || null;  // the chat panel's 选段, attached instead of the whole note
+    this._attachPassage = Boolean(this._passage);
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass('atlas-seminar-modal');
+
+    // Title
+    contentEl.createEl('h2', { text: '🎓 组织猫猫研讨会' });
+    contentEl.createEl('p', {
+      text: '勾选参会猫猫并设定议题，猫猫们会在右侧对话流展开多视角碰撞，结论可存为待结晶笔记，审过再点亮。',
+      cls: 'atlas-seminar-desc',
+    });
+
+    // Cat selector
+    const client = this.plugin.cafeClient;
+    const cats = client?.cats || [];
+
+    contentEl.createEl('label', { text: '1. 参会猫猫（将同步设为你的伴读宠物）', cls: 'atlas-seminar-label' });
+    const catGrid = contentEl.createDiv('atlas-seminar-cats');
+
+    for (const cat of cats) {
+      this._renderCatOption(catGrid, cat, client);
+    }
+
+    // Topic presets + input
+    contentEl.createEl('label', { text: '2. 研讨议题（可点选预设模板）', cls: 'atlas-seminar-label' });
+    const presetRow = contentEl.createDiv('atlas-seminar-presets');
+    const noteTitle = this._targetFile ? `《${this._targetFile.basename}》` : '当前议题';
+    const passage = this._passage;
+    const passageTitle = passage ? `《${passage.basename}》${passageLines(passage)}这段` : '';
+    (passage ? [
+      { label: '🔍 审阅这段', text: `请从各自专长审阅${passageTitle}：论证是否成立、表达是否清楚、还能补充什么。` },
+      { label: '✏️ 各改一版', text: `请每只猫各自给出${passageTitle}的修改稿，并说明改了什么、为什么。` },
+      { label: '⚡ 正反辩论', text: `请围绕${passageTitle}的核心说法展开正反辩论：它在什么情况下成立，什么情况下会失效？` },
+    ] : [
+      {
+        label: '🔍 审阅笔记盲区',
+        text: `请从各自专长审阅${noteTitle}的核心论点、潜在盲区与可补充的关联知识，并给出具体改进建议。`,
+      },
+      {
+        label: '⚡ 多视角正反辩论',
+        text: `请围绕${noteTitle}中的核心机制展开多视角碰撞：它最大的优势是什么？在极端场景下有哪些失效风险？`,
+      },
+      {
+        label: '✨ 提炼结晶要点',
+        text: `请帮我将${noteTitle}提炼为高密度的 Atlas 知识结晶卡片（包含 TL;DR、核心机制对比、对我们的启发）。`,
+      },
+    ]).forEach((p) => {
+      const pBtn = presetRow.createEl('button', {
+        text: p.label,
+        cls: 'atlas-seminar-preset-pill',
+      });
+      pBtn.addEventListener('click', () => {
+        this._topicInput.value = p.text;
+        this._topicInput.focus();
+      });
+    });
+
+    this._topicInput = contentEl.createEl('textarea', {
+      cls: 'atlas-seminar-topic',
+      attr: {
+        placeholder: '想让猫猫们讨论什么？点击上方预设胶囊可一键填入议题…',
+        rows: '4',
+      },
+    });
+    if (this._defaultTopic) {
+      this._topicInput.value = this._defaultTopic;
+    } else if (passage) {
+      this._topicInput.value = `请从各自专长审阅${passageTitle}：论证是否成立、表达是否清楚、还能补充什么。`;
+    } else if (this._targetFile) {
+      this._topicInput.value = `请从各自专长审阅《${this._targetFile.basename}》的核心论点、潜在盲区与可补充的关联知识，并给出具体建议。`;
+    }
+
+    // Passage attachment (from the chat panel's 选段): this part of the note
+    if (passage) {
+      const row = contentEl.createDiv('atlas-seminar-attach');
+      const where = `《${passage.basename}》${passageLines(passage)}`;
+      const label = () => (this._attachPassage ? `📌 ✓ 已附带选段：${where}（${passage.text.length} 字）` : `📌 附带选段：${where}`);
+      const btn = row.createEl('button', { text: label(), cls: `atlas-btn atlas-seminar-attach-btn ${this._attachPassage ? 'is-active' : ''}` });
+      btn.addEventListener('click', () => {
+        this._attachPassage = !this._attachPassage;
+        btn.toggleClass('is-active', this._attachPassage);
+        btn.textContent = label();
+        if (this._noteAttachRow) this._noteAttachRow.style.display = this._attachPassage ? 'none' : '';
+      });
+    }
+
+    // Note attachment — stepping aside while a passage is attached: one or the other goes, never both
+    if (this._targetFile) {
+      const attachRow = contentEl.createDiv('atlas-seminar-attach');
+      this._noteAttachRow = attachRow;
+      if (passage && this._attachPassage) attachRow.style.display = 'none';
+      const attachBtn = attachRow.createEl('button', {
+        text: this._attachNote
+          ? `📎 ✓ 已附带笔记「${this._targetFile.basename}」作为研讨材料`
+          : `📎 附带笔记「${this._targetFile.basename}」`,
+        cls: `atlas-btn atlas-seminar-attach-btn ${this._attachNote ? 'is-active' : ''}`,
+      });
+      attachBtn.addEventListener('click', () => {
+        this._attachNote = !this._attachNote;
+        attachBtn.toggleClass('is-active', this._attachNote);
+        attachBtn.textContent = this._attachNote
+          ? `📎 ✓ 已附带笔记「${this._targetFile.basename}」作为研讨材料`
+          : `📎 附带笔记「${this._targetFile.basename}」`;
+      });
+    }
+
+    // Start button + hint
+    const startRow = contentEl.createDiv('atlas-seminar-start-row');
+    const startBtn = startRow.createEl('button', {
+      text: '🐾 立即开会 · 打开右侧研讨流',
+      cls: 'atlas-btn atlas-btn-primary atlas-seminar-start',
+    });
+    startBtn.addEventListener('click', () => this._start());
+
+    this._hintEl = startRow.createDiv('atlas-seminar-hint');
+    this._updateHint();
+  }
+
+  _renderCatOption(grid, cat, client) {
+    const profile = SpecParser.resolveCatProfile(cat);
+    const item = grid.createDiv('atlas-seminar-cat');
+    item.dataset.catId = cat.id;
+    if (this._selected.has(cat.id)) item.addClass('is-selected');
+
+    renderCatAvatar3D(item, cat, client, 'seminar');
+
+    const name = cat.nickname || profile?.nickname || cat.displayName || cat.name || cat.id;
+    item.createEl('span', { text: name, cls: 'atlas-seminar-cat-name' });
+    if (profile?.breed) {
+      item.createEl('span', { text: profile.breed, cls: 'atlas-seminar-cat-breed' });
+    }
+
+    const check = item.createDiv('atlas-seminar-check');
+    check.textContent = '✓';
+
+    item.addEventListener('click', () => {
+      if (this._selected.has(cat.id)) {
+        this._selected.delete(cat.id);
+        item.removeClass('is-selected');
+      } else {
+        this._selected.add(cat.id);
+        item.addClass('is-selected');
+      }
+      this._updateHint();
+    });
+  }
+
+  _updateHint() {
+    if (!this._hintEl) return;
+    const n = this._selected.size;
+    if (n === 0) {
+      this._hintEl.textContent = '至少选择一只猫猫~';
+    } else if (n === 1) {
+      this._hintEl.textContent = '1 只猫猫就绪 — 多选几只碰撞更精彩！';
+    } else {
+      this._hintEl.textContent = `${n} 只猫猫就绪，发起后将在右侧对话栏实时直播讨论！`;
+    }
+  }
+
+  async _start() {
+    const topic = this._topicInput?.value?.trim();
+    if (!topic) {
+      new obsidian.Notice('💡 请输入讨论议题');
+      return;
+    }
+    if (this._selected.size === 0) {
+      new obsidian.Notice('💡 请至少选择一只猫猫');
+      return;
+    }
+
+    // Sync selected cats into global companion roster!
+    this.plugin.setSummonedCats([...this._selected]);
+
+    const client = this.plugin.cafeClient;
+    const selectedCats = [...this._selected].map(id => client.findCat(id) || { id });
+    const catNames = selectedCats.map(cat => {
+      const p = SpecParser.resolveCatProfile(cat);
+      return cat.nickname || p?.nickname || cat.displayName || cat.name || cat.id;
+    });
+    const mentions = selectedCats.map(cat => {
+      const p = SpecParser.resolveCatProfile(cat);
+      return p?.mention || `@${cat.nickname || cat.name || cat.id}`;
+    });
+
+    // Build structured seminar message with standalone @mentions for A2A routing
+    let content = `🎓 **猫咖研讨会**\n\n`;
+    content += `**议题**：${topic}\n`;
+    content += `**参会猫猫**：${catNames.join('、')}\n\n`;
+
+    const passage = this._attachPassage ? this._passage : null;  // a passage goes alone, never with the whole note
+    if (this._attachNote && this._targetFile && !passage) {
+      const noteContent = await this.app.vault.read(this._targetFile);
+      const preview = noteContent.substring(0, 1500);
+      content += `---\n📎 参考笔记「${this._targetFile.basename}」：\n\n${preview}${noteContent.length > 1500 ? '\n...(全文 ' + noteContent.length + ' 字)' : ''}\n\n---\n\n`;
+    }
+    if (passage) {
+      const fence = passageFence(passage.text);
+      content += `---\n📌 选段 · 《${passage.basename}》${passageLines(passage)}：\n\n${fence}\n${passage.text}\n${fence}\n\n---\n\n`;
+      content += `如果要给出修改，请把改好的完整段落放进一个 ${fence}修改稿 代码块（只放改好的正文），说明写在代码块外。\n\n`;
+    }
+
+    content += `请参会猫猫从各自专长出发，就以上议题给出精炼、可直接整理进笔记的观点与建议。\n\n`;
+    content += mentions.join('\n');
+
+    const threadId = client.threads[0]?.id;
+    const body = { content };
+    if (threadId) body.threadId = threadId;
+    const revisionId = passage ? `rq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : null;
+    if (revisionId) {  // a 修改稿 answering this seminar message, from any of its cats, can then replace this passage
+      await this.plugin.setRevisionTarget({ id: revisionId, cafe: client.baseUrl, threadId: threadId ?? null, path: passage.path, original: passage.text, from: passage.from, to: passage.to, at: Date.now(), messageIds: [] });
+    }
+
+    try {
+      const resp = await client._fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
+
+      new obsidian.Notice(`🎓 研讨会已开启！${catNames.join('、')} 正在右侧对话栏准备发言...`);
+      this.close();
+      if (passage && this.plugin.chatPassage === this._passage) {  // the passage went with the seminar
+        this.plugin.chatPassage = null;
+        this.plugin._renderChatPassage();
+      }
+      await this.plugin.openCafeChat({ threadId });
+    } catch (err) {
+      new obsidian.Notice('⚠️ 研讨会发起失败: ' + (err.message || '未知错误'));
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Main Plugin Class
+// ═══════════════════════════════════════════════
+class ClowderAtlasPlugin extends obsidian.Plugin {
+  async onload() {
+    console.log('Clowder Atlas: Loading plugin...');
+
+    await this.loadSettings();
+    this.summonedCatIds = new Set(this.settings.summonedCats || []);
+    this.cafeScanPorts = [...CAFE_SCAN_PORTS];  // where findCafe() looks after the configured address
+    this.cafePollMs = 30000;  // how often cats and threads are re-read while connected
+    this._resending = new Set();  // failed sends being resent (see beginResend)
+
+    // Our tabs already in the layout when the plugin is switched on in a running app (e.g. the first「信任仓库作者并启用插件」).
+    // Obsidian rebuilds them as soon as their view type is registered, and while that rebuild is in flight they read as empty
+    // tabs, so count them here, before registerView; otherwise onLayoutReady below opens a second lens / star chart.
+    const restoring = new Set([VIEW_TYPE_PROVENANCE_LENS, VIEW_TYPE_STAR_CHART].filter((t) => this.app.workspace.getLeavesOfType(t).length));
+
+    // Register views
+    this.registerView(VIEW_TYPE_PROVENANCE_LENS, (leaf) => new ProvenanceLensView(leaf, this));
+    this.registerView(VIEW_TYPE_STAR_CHART, (leaf) => new StarChartView(leaf, this));
+    this.registerView(VIEW_TYPE_CAFE_CHAT, (leaf) => new CafeChatView(leaf, this));
+
+    // Add commands
+    this.addCommand({
+      id: 'toggle-provenance-lens',
+      name: 'Toggle Provenance Lens',
+      callback: () => this.toggleLens(),
+    });
+
+    this.addCommand({
+      id: 'open-provenance-lens',
+      name: 'Open Provenance Lens',
+      callback: () => this.activateLens(),
+    });
+
+    this.addCommand({
+      id: 'insert-memory-template-minimal',
+      name: 'Insert Memory Template (Minimal)',
+      editorCallback: (editor) => this.insertTemplate(editor, 'minimal'),
+    });
+
+    this.addCommand({
+      id: 'insert-memory-template-full',
+      name: 'Insert Memory Template (Full)',
+      editorCallback: (editor) => this.insertTemplate(editor, 'full'),
+    });
+
+    this.addCommand({
+      id: 'insert-memory-template-paper',
+      name: 'Insert Memory Template (Paper)',
+      editorCallback: (editor) => this.insertTemplate(editor, 'paper'),
+    });
+
+    this.addCommand({
+      id: 'create-atlas-note',
+      name: 'Create New Atlas Note',
+      callback: () => this.createAtlasNote(),
+    });
+
+    this.addCommand({
+      id: 'scan-vault-stats',
+      name: 'Scan Vault Statistics',
+      callback: () => this.scanVault(),
+    });
+
+    this.addCommand({
+      id: 'generate-canvas',
+      name: 'Generate Atlas Canvas',
+      callback: () => this.generateCanvas(),
+    });
+
+    this.addCommand({
+      id: 'open-star-chart',
+      name: 'Open Star Chart ★',
+      callback: () => this.openStarChart(),
+    });
+
+    this.addCommand({
+      id: 'open-cafe-chat',
+      name: 'Open Cat Cafe Chat ☕',
+      callback: () => this.openCafeChat(),
+    });
+
+    this.addCommand({
+      id: 'ask-cats-about-note',
+      name: 'Ask Cats About This Note 🐾',
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !this.isCafeConnected) return false;
+        if (checking) return true;
+        this._askCatsAboutNote(file);
+      },
+    });
+
+    // A passage of the note being edited, handed to the cats. Whether they discuss it or revise it is up to what the user
+    // writes to them — not to which menu item was picked.
+    this.registerEvent(this.app.workspace.on('editor-menu', (menu, editor, view) => {
+      if (!editor.somethingSelected() || !view?.file) return;
+      menu.addItem((item) => item.setTitle('🐾 把选中段落交给猫猫').setIcon('message-circle').onClick(() => this.askAboutPassage(editor, view)));
+    }));
+    this.addCommand({
+      id: 'ask-about-selection',
+      name: 'Ask Cats About Selection 🐾',
+      editorCheckCallback: (checking, editor, view) => {
+        if (!editor.somethingSelected() || !view?.file) return false;
+        if (!checking) this.askAboutPassage(editor, view);
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: 'organize-seminar',
+      name: 'Organize Cat Seminar 🎓',
+      callback: () => this.openSeminarModal(),
+    });
+
+    // Single ribbon icon with coherent menu
+    this.addRibbonIcon('cat', 'Clowder Atlas', (evt) => {
+      const menu = new obsidian.Menu();
+      menu.addItem(item => item.setTitle('🔍 溯源透镜（右侧伴读台）').setIcon('eye').onClick(() => this.activateLens()));
+      menu.addItem(item => item.setTitle('💬 猫咖对话（右侧研讨流）').setIcon('message-circle').onClick(() => this.openCafeChat()));
+      menu.addItem(item => item.setTitle('🎓 针对当前笔记开研讨会').setIcon('graduation-cap').onClick(() => this.openSeminarModal()));
+      menu.addSeparator();
+      menu.addItem(item => item.setTitle('✦ 3D 记忆星图').setIcon('star').onClick(() => this.openStarChart()));
+      menu.addItem(item => item.setTitle('🎨 生成 2D 知识画布').setIcon('layout-grid').onClick(() => this.generateCanvas()));
+      menu.showAtMouseEvent(evt);
+    });
+
+    // Status bar
+    this.statusBarItem = this.addStatusBarItem();
+    this.updateStatusBar();
+
+    // Add settings tab
+    this.addSettingTab(new ClowderAtlasSettingTab(this.app, this));
+
+    // Register CSS classes on body for luminance
+    this.registerMarkdownPostProcessor((el, ctx) => {
+      this.postProcessMarkdown(el, ctx);
+    });
+
+    // Auto-open on layout ready — Star Chart + Provenance Lens
+    this.app.workspace.onLayoutReady(() => {
+      this.updateStatusBar();
+      // The cat playground was folded into the companion strip (0.8.3); close its tabs left in saved layouts.
+      for (const leaf of this.app.workspace.getLeavesOfType('clowder-atlas-cat-playground')) leaf.detach();
+      if (!restoring.has(VIEW_TYPE_PROVENANCE_LENS) && !this.app.workspace.getLeavesOfType(VIEW_TYPE_PROVENANCE_LENS).length) {
+        this.activateLens();
+      }
+      if (!restoring.has(VIEW_TYPE_STAR_CHART) && !this.app.workspace.getLeavesOfType(VIEW_TYPE_STAR_CHART).length) {
+        this.openStarChart();
+      }
+    });
+
+    // ── Cat Cafe Connection ──
+    this.cafeClient = null;
+    if (this.settings.catCafeEnabled) {
+      this._initCafeConnection();
+    }
+
+    console.log('Clowder Atlas: Plugin loaded successfully!');
+    new obsidian.Notice('🐾 Clowder Atlas 已就绪 — 探索你的知识花园');
+  }
+
+  onunload() {
+    if (this.cafeClient) {
+      this.cafeClient.destroy();
+      this.cafeClient = null;
+    }
+    console.log('Clowder Atlas: Plugin unloaded');
+  }
+
+  async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+
+  async saveSettings() {
+    await this.saveData(this.settings);
+  }
+
+  // ── Global Companion Summon State & Unified Navigation ──
+
+  isCatSummoned(catId) {
+    return this.summonedCatIds && this.summonedCatIds.has(catId);
+  }
+
+  getSummonedCats() {
+    if (!this.cafeClient || !this.cafeClient.cats) return [];
+    return this.cafeClient.cats.filter(c => this.isCatSummoned(c.id));
+  }
+
+  async toggleSummonCat(catId) {
+    if (!this.summonedCatIds) this.summonedCatIds = new Set();
+    const cat = this.cafeClient?.findCat(catId);
+    const name = cat?.nickname || cat?.displayName || cat?.name || catId;
+    if (this.summonedCatIds.has(catId)) {
+      this.summonedCatIds.delete(catId);
+      new obsidian.Notice(`👋 ${name} 先去休息啦`);
+    } else {
+      this.summonedCatIds.add(catId);
+      new obsidian.Notice(`✨ 已召唤 ${name} 到伴读席！`);
+    }
+    this.settings.summonedCats = [...this.summonedCatIds];
+    await this.saveSettings();
+    this.refreshAllViews({ companionsOnly: true });
+    this.updateStatusBar();
+  }
+
+  async setSummonedCats(catIds) {
+    this.summonedCatIds = new Set(catIds || []);
+    this.settings.summonedCats = [...this.summonedCatIds];
+    await this.saveSettings();
+    this.refreshAllViews({ companionsOnly: true });
+    this.updateStatusBar();
+  }
+
+  /** Opens the chat with the passage selected in `editor` attached; the user's words then say what the cats should do. */
+  async askAboutPassage(editor, view) {
+    const from = editor.getCursor('from'), to = editor.getCursor('to');
+    const text = editor.getRange(from, to);
+    if (!text.trim() || !view?.file) return;
+    if (text.length > PASSAGE_MAX_CHARS) {
+      new obsidian.Notice(`⚠️ 选中的内容有 ${text.length} 字，猫咖一条消息放不下，请缩短到 ${PASSAGE_MAX_CHARS} 字以内`);
+      return;
+    }
+    this.chatPassage = { path: view.file.path, basename: view.file.basename, text,
+      from: { line: from.line, ch: from.ch }, to: { line: to.line, ch: to.ch } };
+    await this.openCafeChat({ passage: true });
+  }
+
+  _renderChatPassage() {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_CAFE_CHAT)) leaf.view?._renderPassage?.();
+  }
+
+  /**
+   * Passage requests, by request id — { id, cafe, threadId, path, original, from, to, at, messageIds } — kept in data.json.
+   * messageIds are the cafe's ids for the message that carried the request (its userMessageId; again after a resend).
+   * A cat's reply names the messages it answers (lifecycle.inputMessageIds): that is how a 修改稿 finds its passage.
+   */
+  _revisionRequests() {
+    return Object.values(this.settings.revisionTargets || {}).filter((t) => t && t.id && Array.isArray(t.messageIds));
+  }
+
+  getRevisionTargetById(id) {
+    const t = id ? (this.settings.revisionTargets || {})[id] : null;
+    return t && t.id === id && Array.isArray(t.messageIds) ? t : null;
+  }
+
+  /** The latest passage request in a conversation — to see where things stand; replies are never matched by this. */
+  getRevisionTarget(cafe, threadId) {
+    return this._revisionRequests()
+      .filter((t) => t.cafe === cafe && (t.threadId ?? null) === (threadId ?? null))
+      .sort((a, b) => b.at - a.at)[0] || null;
+  }
+
+  async setRevisionTarget(target) {
+    this.settings.revisionTargets = { ...(this.settings.revisionTargets || {}), [target.id]: target };
+    await this.saveSettings();
+  }
+
+  /** The cafe stored request `id` as `messageId`: replies answering that message now find this passage. */
+  async bindRevisionMessage(id, messageId) {
+    const t = this.getRevisionTargetById(id);
+    if (!t || !messageId || t.messageIds.includes(messageId)) return;
+    await this.setRevisionTarget({ ...t, messageIds: [...t.messageIds, messageId] });
+    this._renderChatMessages();
+  }
+
+  /**
+   * The passage request a cat's reply answers: the only one whose message the reply names. A reply that names none of
+   * them, or several (the cafe answered more than one message at once), is not matched: its 修改稿 stays copy-only.
+   */
+  revisionTargetForReply(cafe, msg) {
+    const answered = msg?.lifecycle?.kind === 'response' && Array.isArray(msg.lifecycle.inputMessageIds) ? msg.lifecycle.inputMessageIds : [];
+    const hits = answered.length
+      ? this._revisionRequests().filter((t) => t.cafe === cafe && t.messageIds.some((m) => answered.includes(m)))
+      : [];
+    return hits.length === 1 ? { target: hits[0] } : { target: null, reason: hits.length > 1 ? 'several' : 'unknown' };
+  }
+
+  /** The open editor of `file`, if it is open (a replacement made through it is one Cmd+Z away). */
+  _editorFor(file) {
+    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+      if (leaf.view?.file?.path === file.path && leaf.view.editor) return leaf.view.editor;
+    }
+    return null;
+  }
+
+  /** The note's text as it is now: the open editor's (unsaved typing included), else the file's. */
+  async _currentText(file) {
+    const editor = this._editorFor(file);
+    return editor ? editor.getValue() : this.app.vault.read(file);
+  }
+
+  /**
+   * Puts a cat's revision in place of the passage it was asked to revise — and only there: the original text must still
+   * be where it was, or occur exactly once. Through the open editor when there is one (one undoable step), otherwise as
+   * one atomic file update. The request then holds the new text, so another cat's version for it can take its place.
+   * Returns { ok, reason }.
+   */
+  async applyRevision(request, revised) {
+    const target = this.getRevisionTargetById(request?.id);  // as it stands now, not as it was when the check opened
+    if (!target) return { ok: false, reason: '这份修改稿对应的选段记录已不存在' };
+    const file = this.app.vault.getAbstractFileByPath(target.path);
+    if (!(file instanceof obsidian.TFile)) return { ok: false, reason: `找不到笔记「${target.path}」` };
+    const editor = this._editorFor(file);
+    let offset = -1, failure = null;
+    if (editor) {
+      const at = locatePassage(editor.getValue(), target);
+      if (at.offset < 0) return { ok: false, reason: at.reason };
+      offset = at.offset;
+      editor.replaceRange(revised, editor.offsetToPos(offset), editor.offsetToPos(offset + target.original.length));
+    } else {
+      await this.app.vault.process(file, (data) => {
+        const at = locatePassage(data, target);
+        if (at.offset < 0) { failure = at.reason; return data; }
+        offset = at.offset;
+        return data.slice(0, offset) + revised + data.slice(offset + target.original.length);
+      });
+      if (failure) return { ok: false, reason: failure };
+    }
+    const after = await this._currentText(file);
+    await this.setRevisionTarget({ ...target, original: revised, from: posOfOffset(after, offset), to: posOfOffset(after, offset + revised.length) });
+    return { ok: true };
+  }
+
+  /** Sends that did not land, oldest first: { id, cafe, threadId, content, fullContent, error, at }. */
+  getFailedSends() {
+    return this.settings.failedSends || [];
+  }
+
+  /**
+   * Keeps (or updates) a failed send, saved with the plugin's data, and shows it in the chat panels. Nothing is ever
+   * dropped automatically: a record stays until the user resends, puts back or deletes it.
+   */
+  async recordFailedSend(record) {
+    this.settings.failedSends = [...this.getFailedSends().filter((r) => r.id !== record.id), record];
+    await this.saveSettings();
+    this._renderChatMessages();
+  }
+
+  async dropFailedSend(id) {
+    this.settings.failedSends = this.getFailedSends().filter((r) => r.id !== id);
+    await this.saveSettings();
+    this._renderChatMessages();
+  }
+
+  /** Retries in flight, by failed-send id: a rebuilt 重发 reads this, and a second start is refused. */
+  beginResend(id) {
+    if (this._resending.has(id)) return false;
+    this._resending.add(id);
+    this._renderChatMessages();  // every panel shows it as on its way
+    return true;
+  }
+
+  endResend(id) {
+    this._resending.delete(id);
+  }
+
+  isResending(id) {
+    return this._resending.has(id);
+  }
+
+  _renderChatMessages() {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_CAFE_CHAT)) leaf.view?._renderMessages?.();
+  }
+
+  /** `{ companionsOnly: true }` when only who is summoned changed: the chat then refreshes its strip in place. */
+  refreshAllViews(opts = {}) {
+    for (const type of [VIEW_TYPE_PROVENANCE_LENS, VIEW_TYPE_CAFE_CHAT]) {
+      for (const leaf of this.app.workspace.getLeavesOfType(type)) {
+        leaf.view?.refresh?.(opts);
+      }
+    }
+  }
+
+  /**
+   * Renders the unified top navigation bar shared by the Lens and Chat side panels
+   * so switching between views never feels like a dead end.
+   */
+  renderUnifiedNavBar(container, activeTab) {
+    const topbar = container.createDiv('atlas-topbar');
+    const brand = topbar.createDiv('atlas-topbar-brand');
+    brand.createEl('span', { text: '🐾', cls: 'atlas-topbar-paw' });
+    brand.createEl('span', { text: 'Atlas' });
+
+    const connected = this.isCafeConnected;
+    brand.createEl('span', {
+      cls: `atlas-conn-dot ${connected ? 'is-connected' : ''}`,
+      attr: { title: connected ? '已连接猫咖 Hub' : '未连接（点击打开对话面板连接猫咖）' }
+    });
+    brand.addEventListener('click', () => {
+      if (!connected) this.openCafeChat();  // connecting happens in the chat panel, not in Obsidian's settings
+    });
+
+    const actions = topbar.createDiv('atlas-topbar-actions');
+    const navItems = [
+      { id: 'lens', label: '🔍 透镜', title: '当前笔记溯源透镜', onClick: () => this.activateLens() },
+      { id: 'chat', label: '💬 对话', title: '猫咖实时对话流', onClick: () => this.openCafeChat() },
+      { id: 'stars', label: '✦ 星图', title: '打开 3D 记忆星图', onClick: () => this.openStarChart() },
+    ];
+    for (const item of navItems) {
+      const btn = actions.createEl('button', {
+        text: item.label,
+        cls: `atlas-icon-btn ${activeTab === item.id ? 'is-active-tab' : ''}`,
+        attr: { title: item.title }
+      });
+      btn.addEventListener('click', item.onClick);
+    }
+  }
+
+  openSeminarModal(options = {}) {
+    if (!this.isCafeConnected) {
+      new obsidian.Notice('⚠️ 请先连接猫咖 Hub');
+      return;
+    }
+    new SeminarModal(this.app, this, options).open();
+  }
+
+  /**
+   * Save a cat's chat/seminar message as a pending L1 Atlas note in <atlasDir>/pending.
+   * Spec §2.3 (memory_status): only a person may mark it crystallized — the lens「点亮结晶」, which also moves it to crystals.
+   */
+  async saveMessageAsPendingNote(msg, catData, threadId) {
+    const uuid = this._generateUUID();
+    const now = this._localDate();
+    const dir = this.settings.atlasDir + '/pending';
+    if (!this.app.vault.getAbstractFileByPath(dir)) {
+      await this.app.vault.createFolder(dir);
+    }
+
+    const profile = SpecParser.resolveCatProfile(catData || msg.catId || '');
+    const catName = catData?.nickname || profile?.nickname || catData?.name || msg.catId || 'ClowderCat';
+    const activeFile = this.app.workspace.getActiveFile();
+    const rawText = (msg.content || '').trim();
+    const firstHeadingMatch = rawText.match(/^#+\s*(.+)$/m);
+    const shortTitle = firstHeadingMatch
+      ? firstHeadingMatch[1].replace(/[\\/:*?"<>|]/g, '').slice(0, 24).trim()
+      : (activeFile ? `${activeFile.basename}-研讨要点` : `猫咖研讨要点-${now}`);
+    // A message that opens with the heading used as the title would otherwise repeat it under the note's own heading.
+    const bodyText = firstHeadingMatch && rawText.startsWith(firstHeadingMatch[0]) && firstHeadingMatch[1].trim() === shortTitle
+      ? rawText.slice(firstHeadingMatch[0].length).trim()
+      : rawText;
+
+    const safeFileName = `${dir}/${shortTitle}-${uuid.slice(0, 6)}.md`;
+    const relatedList = activeFile ? `["[[${activeFile.basename}]]"]` : '[]';
+
+    const noteContent = [
+      '---',
+      'atlas_version: v1',
+      `atlas_id: "${uuid}"`,
+      `memory_type: ${this.settings.defaultMemoryType || 'semantic'}`,
+      `title: "${shortTitle}"`,
+      'memory_status: pending',
+      `atlas_authors: ["${catName}"]`,
+      'atlas_source: clowder_ai',
+      `atlas_source_ref: "${threadId || 'cafe-chat'}"`,
+      `related: ${relatedList}`,
+      'tags: [agent-memory, cat-seminar]',
+      `created: "${now}"`,
+      `updated: "${now}"`,
+      '---',
+      '',
+      `# ${shortTitle}`,
+      '',
+      `> 🐾 由 **${catName}** 在猫咖研讨中提出，待审阅后点亮结晶${activeFile ? ` · 关联笔记：[[${activeFile.basename}]]` : ''}`,
+      '',
+      bodyText,
+      '',
+    ].join('\n');
+
+    const newFile = await this.app.vault.create(safeFileName, noteContent);
+    await this.app.workspace.getLeaf(false).openFile(newFile);
+    new obsidian.Notice(`💎 已将 ${catName} 的观点存为待结晶笔记：${newFile.basename}（审阅后在透镜里点亮结晶）`);
+    this.updateStatusBar();
+  }
+
+  /**
+   * Spec §5.2: a pending candidate waits in <atlasDir>/pending until a person crystallizes it, then moves to
+   * <atlasDir>/crystals. Notes anywhere else stay where the person keeps them. Returns the new folder or null.
+   */
+  async movePendingToCrystals(file) {
+    const root = obsidian.normalizePath(this.settings.atlasDir || ATLAS_DIR_DEFAULT);
+    if (file.parent?.path !== `${root}/pending`) return null;
+    const dir = `${root}/crystals`;
+    if (!this.app.vault.getAbstractFileByPath(dir)) await this.app.vault.createFolder(dir);
+    let target = `${dir}/${file.name}`;
+    for (let i = 2; this.app.vault.getAbstractFileByPath(target); i++) target = `${dir}/${file.basename}-${i}.${file.extension}`;
+    await this.app.fileManager.renameFile(file, target);  // keeps atlas_id; links follow the user's link settings
+    return dir;
+  }
+
+  /**
+   * Append a cat's chat/seminar insight directly to the currently open Markdown note!
+   */
+  async appendMessageToActiveNote(msg, catData) {
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile || activeFile.extension !== 'md') {
+      new obsidian.Notice('💡 请先在左侧打开一篇 Markdown 笔记，再点击摘录');
+      return;
+    }
+    const profile = SpecParser.resolveCatProfile(catData || msg.catId || '');
+    const catName = catData?.nickname || profile?.nickname || catData?.name || msg.catId || '猫猫';
+    const now = this._localDate();
+    const quotedLines = (msg.content || '')
+      .trim()
+      .split('\n')
+      .map(line => `> ${line}`)
+      .join('\n');
+
+    const block = `\n\n> [!quote] 🐾 ${catName} 伴读研讨摘录 (${now})\n${quotedLines}\n`;
+    await this.app.vault.append(activeFile, block);
+    new obsidian.Notice(`📥 已将 ${catName} 的观点追加到《${activeFile.basename}》末尾！`);
+  }
+
+  // ── Cat Cafe Connection ──
+
+  async _initCafeConnection() {
+    const addr = this.settings.catCafeAddress || 'http://localhost:3004';
+    this.cafeClient?.destroy();  // one client, one poll loop
+    const client = this.cafeClient = new CatCafeClient(addr);
+    // Disconnecting or switching address while this waits makes the attempt void: after every await it goes on only
+    // while its client is still the plugin's client, so nothing is shown, saved or started for a stale connection.
+    const current = () => this.cafeClient === client;
+    const vaultPath = this.app.vault.adapter.basePath || '';
+    const ok = await client.connect(vaultPath);
+    if (!current()) return;
+    if (ok) {
+      const catCount = client.cats.length;
+      const threadCount = client.threads.length;
+      // Default-summon the first 3 cats if user has never summoned any yet, so the companion strip feels alive immediately!
+      if ((!this.summonedCatIds || this.summonedCatIds.size === 0) && client.cats.length > 0) {
+        this.summonedCatIds = new Set(client.cats.slice(0, 3).map(c => c.id));
+        this.settings.summonedCats = [...this.summonedCatIds];
+        await this.saveSettings();
+        if (!current()) return;
+      }
+      console.log(`Clowder Atlas: Connected to Cat Cafe! ${catCount} cats, ${threadCount} threads for this vault`);
+      new obsidian.Notice(`🐾 已连接猫咖！${catCount} 只猫在线，${this.summonedCatIds.size} 只伴读猫猫已就位`);
+      // Cats or threads changed in the cafe (or it went away): refresh the panels, in place while still connected
+      client.startPolling(vaultPath, this.cafePollMs, () => {
+        this.refreshAllViews({ companionsOnly: this.isCafeConnected });
+        this.updateStatusBar();
+      });
+    } else {
+      console.warn('Clowder Atlas: Cat Cafe connection failed:', client.lastError);
+      new obsidian.Notice('⚠️ 猫咖连接失败 — 请确认 Cat Cafe Hub 正在运行');
+    }
+    this.refreshAllViews();
+    this.updateStatusBar();
+  }
+
+  async _disconnectCafe() {
+    if (this.cafeClient) {
+      this.cafeClient.destroy();
+      this.cafeClient = null;
+    }
+    this.refreshAllViews();
+    this.updateStatusBar();
+  }
+
+  _refreshLens() {
+    this.refreshAllViews();
+  }
+
+  get isCafeConnected() {
+    return this.cafeClient && this.cafeClient.connected;
+  }
+
+  /**
+   * One click for people who may not have Clowder AI set up: find a Cat Cafe running on this machine, save its
+   * address, switch the connection on (persisted) and connect.
+   * Returns { status: 'connected' | 'failed' | 'not-found', address?, error? }.
+   */
+  async oneClickConnect() {
+    const address = await this.findCafe();
+    if (!address) return { status: 'not-found' };
+    this.settings.catCafeEnabled = true;
+    this.settings.catCafeAddress = address;
+    await this.saveSettings();
+    await this._initCafeConnection();
+    return this.isCafeConnected
+      ? { status: 'connected', address }
+      : { status: 'failed', address, error: this.cafeClient?.lastError || '连接失败' };
+  }
+
+  /** The configured address first, then the usual local ports; returns the first that answers like a Cat Cafe. */
+  async findCafe() {
+    const candidates = [this.settings.catCafeAddress, ...this.cafeScanPorts.map((p) => `http://localhost:${p}`)]
+      .filter(Boolean).map((a) => a.trim().replace(/\/+$/, ''));
+    for (const base of new Set(candidates)) {
+      if (await CatCafeClient.isCafe(base)) return base;
+    }
+    return null;
+  }
+
+  /** Re-read cats and threads now (the chat panel's ↻); panels update in place. */
+  async refreshCafe() {
+    const client = this.cafeClient;
+    if (!client) return { ok: false, error: '未连接猫咖' };
+    await client.connect(this.app.vault.adapter.basePath || '');
+    if (this.cafeClient !== client) return { ok: false, error: '连接已断开或已切换地址' };
+    this.refreshAllViews({ companionsOnly: client.connected });
+    this.updateStatusBar();
+    return { ok: client.connected, cats: client.cats.length, threads: client.threads.length, error: client.lastError };
+  }
+
+  /** Settings「检测并修复」: same search as the one-click connect, reported as notices. */
+  async _diagnoseConnection() {
+    const before = this.settings.catCafeAddress;
+    const outcome = await this.oneClickConnect();
+    if (outcome.status === 'connected') {
+      new obsidian.Notice(outcome.address === before ? '✅ 连接已恢复！' : `✅ 自动修复：猫咖在 ${outcome.address}`);
+      return true;
+    }
+    new obsidian.Notice(outcome.status === 'failed'
+      ? `❌ 找到了猫咖（${outcome.address}），但没能连上：${outcome.error}`
+      : '❌ 本机没有找到运行中的猫咖 — 请先打开猫咖；还没安装的话，在对话面板点「一键连接猫咖」查看下载方式');
+    return false;
+  }
+
+  // ── Provenance Lens & Views ──
+
+  async activateLens() {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PROVENANCE_LENS);
+    if (existing.length) {
+      this.app.workspace.revealLeaf(existing[0]);
+      existing[0].view?.refresh?.();
+      return;
+    }
+
+    const leaf = this.app.workspace.getRightLeaf(false);
+    if (leaf) {
+      await leaf.setViewState({ type: VIEW_TYPE_PROVENANCE_LENS, active: true });
+      this.app.workspace.revealLeaf(leaf);
+    }
+  }
+
+  async openStarChart() {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_STAR_CHART);
+    if (existing.length) {
+      this.app.workspace.revealLeaf(existing[0]);
+      existing[0].view?.onOpen?.();
+      return;
+    }
+    const leaf = this.app.workspace.getLeaf(true);
+    if (leaf) {
+      await leaf.setViewState({ type: VIEW_TYPE_STAR_CHART, active: true });
+      this.app.workspace.revealLeaf(leaf);
+    }
+  }
+
+  async openCafeChat(options = {}) {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_CAFE_CHAT);
+    if (existing.length) {
+      this.app.workspace.revealLeaf(existing[0]);
+      if (existing[0].view?.applyChatContext) {
+        await existing[0].view.applyChatContext(options);
+      }
+      return;
+    }
+    const leaf = this.app.workspace.getRightLeaf(false);
+    if (leaf) {
+      await leaf.setViewState({ type: VIEW_TYPE_CAFE_CHAT, active: true });
+      this.app.workspace.revealLeaf(leaf);
+      if (leaf.view?.applyChatContext) {
+        await leaf.view.applyChatContext(options);
+      }
+    }
+  }
+
+  async _askCatsAboutNote(file) {
+    if (!this.isCafeConnected) {
+      new obsidian.Notice('⚠️ 请先连接猫咖 Hub');
+      return;
+    }
+    await this.openCafeChat({ attachFile: file });
+  }
+
+  async toggleLens() {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PROVENANCE_LENS);
+    if (existing.length) {
+      existing[0].detach();
+    } else {
+      await this.activateLens();
+    }
+  }
+
+  // ── Template Insertion ──
+
+  async insertTemplate(editor, type) {
+    // Guard against re-entry (rapid double-invoke before cache updates)
+    if (this._templateInFlight) {
+      new obsidian.Notice('模板操作进行中，请稍候');
+      return;
+    }
+    this._templateInFlight = true;
+
+    try {
+      await this._insertTemplateInner(editor, type);
+    } finally {
+      // Release after a short delay to let cache catch up
+      setTimeout(() => { this._templateInFlight = false; }, 500);
+    }
+  }
+
+  async _insertTemplateInner(editor, type) {
+    const now = this._localDate();
+    const activeFile = this.app.workspace.getActiveFile();
+
+    // Check if file already has frontmatter — read EDITOR CONTENT directly,
+    // not metadata cache, because cache may lag behind unsaved edits.
+    const editorContent = editor.getValue();
+    const hasFrontmatter = /^\s*---\s*\n/.test(editorContent) && editorContent.indexOf('\n---', 4) > 0;
+
+    if (activeFile && hasFrontmatter) {
+      await this._enrollExistingNote(activeFile, editor, type, now);
+      return;
+    }
+
+    // Also guard: if editor already has content (but no frontmatter), don't blindly prepend
+    if (editorContent.trim().length > 0) {
+      if (activeFile) {
+        await this._enrollExistingNote(activeFile, editor, type, now);
+        return;
+      }
+    }
+
+    // Truly empty file — safe to insert full template
+    const uuid = this._generateUUID();
+    let template = '';
+
+    switch (type) {
+      case 'minimal':
+        template = [
+          '---',
+          'atlas_version: v1',
+          `atlas_id: "${uuid}"`,
+          `memory_type: ${this.settings.defaultMemoryType}`,
+          'title: ""',
+          'memory_status: draft',
+          'tags: []',
+          `created: "${now}"`,
+          `updated: "${now}"`,
+          '---',
+          '',
+          '# ',
+          '',
+          '## 要点',
+          '',
+          '',
+          '## 来源',
+          '',
+          '',
+          '## 关联笔记',
+          '',
+          ''
+        ].join('\n');
+        break;
+
+      case 'full':
+        template = [
+          '---',
+          'atlas_version: v1',
+          `atlas_id: "${uuid}"`,
+          `memory_type: ${this.settings.defaultMemoryType}`,
+          'title: ""',
+          'memory_status: draft',
+          'atlas_authors: []',
+          'atlas_source: manual',
+          'atlas_source_ref: ""',
+          'related: []',
+          'tags: [agent-memory]',
+          `created: "${now}"`,
+          `updated: "${now}"`,
+          'atlas_author_details: []',
+          'atlas_evidence: []',
+          '---',
+          '',
+          '# ',
+          '',
+          '## TL;DR',
+          '',
+          '',
+          '## 内容',
+          '',
+          '',
+          '## 关联与启发',
+          '',
+          '',
+          '## 证据链',
+          '',
+          '> 本笔记的内容来源于以下证据，可逐条追溯。',
+          '',
+          ''
+        ].join('\n');
+        break;
+
+      case 'paper':
+        template = [
+          '---',
+          'atlas_version: v1',
+          `atlas_id: "${uuid}"`,
+          'memory_type: semantic',
+          'type: paper',
+          'title: ""',
+          'memory_status: draft',
+          'atlas_authors: []',
+          'atlas_source: manual',
+          'atlas_source_ref: ""',
+          'paper_authors: []',
+          'paper_arxiv: ""',
+          'paper_venue: ""',
+          'paper_date: ""',
+          'related: []',
+          'tags: [agent-memory, paper]',
+          `created: "${now}"`,
+          `updated: "${now}"`,
+          'atlas_evidence: []',
+          '---',
+          '',
+          '# ',
+          '',
+          '## TL;DR',
+          '',
+          '',
+          '## 核心贡献',
+          '',
+          '',
+          '## 方法',
+          '',
+          '',
+          '## 关键结果',
+          '',
+          '',
+          '## 与其他工作的关系',
+          '',
+          '',
+          '## 对我们的启发',
+          '',
+          ''
+        ].join('\n');
+        break;
+    }
+
+    editor.replaceRange(template, { line: 0, ch: 0 });
+    new obsidian.Notice(`Atlas 模板已插入 (${type})`);
+    this.updateStatusBar();
+  }
+
+  /**
+   * Safely enroll an existing note into Atlas using SYNCHRONOUS editor
+   * operations only. Parses frontmatter from the editor buffer, patches
+   * missing Atlas fields, and writes back via editor.replaceRange() —
+   * all in a single synchronous tick. No disk I/O, no race window.
+   *
+   * Obsidian's auto-save handles persistence to disk at its normal cadence.
+   * Invalid YAML is preserved as-is with a user notice.
+   */
+  _enrollExistingNote(file, editor, type, now) {
+    const content = editor.getValue();
+    const lines = content.split('\n');
+
+    // ── Locate frontmatter boundaries ──
+    let fmOpenLine = -1;
+    let fmCloseLine = -1;
+
+    // Opening --- must be at or before the first non-blank line
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*$/.test(lines[i])) continue;       // skip leading blanks
+      if (/^---\s*$/.test(lines[i])) {
+        fmOpenLine = i;
+      }
+      break; // first non-blank line decides
+    }
+
+    if (fmOpenLine >= 0) {
+      for (let i = fmOpenLine + 1; i < lines.length; i++) {
+        if (/^---\s*$/.test(lines[i])) {
+          fmCloseLine = i;
+          break;
+        }
+      }
+    }
+
+    if (fmOpenLine >= 0 && fmCloseLine > fmOpenLine) {
+      // ── Has frontmatter — parse, patch, replace ──
+      const yamlStr = lines.slice(fmOpenLine + 1, fmCloseLine).join('\n');
+
+      let parsed;
+      try {
+        parsed = obsidian.parseYaml(yamlStr);
+      } catch (e) {
+        new obsidian.Notice('⚠️ YAML 格式无效，无法自动补字段。请手动修正 frontmatter 后重试。');
+        return;
+      }
+      // Only plain objects (YAML mappings) and null/undefined (empty doc)
+      // can have Atlas fields added. Arrays, strings, numbers etc. are
+      // valid YAML but not property mappings — preserve them as-is.
+      if (parsed === null || parsed === undefined) {
+        parsed = {};
+      } else if (Array.isArray(parsed) || typeof parsed !== 'object') {
+        new obsidian.Notice('⚠️ Frontmatter 不是属性映射（可能是纯文本或列表），无法自动补字段。请改为 key: value 格式后重试。');
+        return;
+      }
+
+      // Only add missing Atlas fields — never overwrite existing values
+      if (!parsed.atlas_id)      parsed.atlas_id = this._generateUUID();
+      if (!parsed.atlas_version) parsed.atlas_version = 'v1';
+      if (!parsed.memory_type)   parsed.memory_type = (type === 'paper') ? 'semantic' : this.settings.defaultMemoryType;
+      if (!parsed.memory_status) parsed.memory_status = 'draft';
+      if (!parsed.atlas_authors) parsed.atlas_authors = [];
+      if (!parsed.atlas_source)  parsed.atlas_source = 'manual';
+      if (!parsed.created)       parsed.created = now;
+      parsed.updated = now;
+
+      if (type === 'paper') {
+        if (!parsed.type)           parsed.type = 'paper';
+        if (!parsed.paper_authors)  parsed.paper_authors = [];
+      }
+
+      const newYaml = obsidian.stringifyYaml(parsed);   // trailing \n included
+      const newFmBlock = '---\n' + newYaml + '---\n';
+
+      // Synchronous atomic replace: opening --- through closing ---\n
+      editor.replaceRange(
+        newFmBlock,
+        { line: fmOpenLine, ch: 0 },
+        { line: fmCloseLine + 1, ch: 0 }
+      );
+    } else {
+      // ── No frontmatter — prepend new block at the top ──
+      const fm = {};
+      fm.atlas_id      = this._generateUUID();
+      fm.atlas_version  = 'v1';
+      fm.memory_type    = (type === 'paper') ? 'semantic' : this.settings.defaultMemoryType;
+      fm.memory_status  = 'draft';
+      fm.atlas_authors  = [];
+      fm.atlas_source   = 'manual';
+      fm.created        = now;
+      fm.updated        = now;
+
+      if (type === 'paper') {
+        fm.type          = 'paper';
+        fm.paper_authors = [];
+      }
+
+      const newYaml = obsidian.stringifyYaml(fm);
+      editor.replaceRange('---\n' + newYaml + '---\n', { line: 0, ch: 0 });
+    }
+
+    new obsidian.Notice(`已将此笔记加入 Atlas (${type})，原有字段已保留`);
+    this.updateStatusBar();
+  }
+
+  // ── Create Atlas Note ──
+
+  async createAtlasNote() {
+    const uuid = this._generateUUID();
+    const now = this._localDate();
+    const dir = this.settings.atlasDir + '/pending';
+
+    // Ensure directory exists
+    if (!this.app.vault.getAbstractFileByPath(dir)) {
+      await this.app.vault.createFolder(dir);
+    }
+
+    const fileName = `${dir}/新笔记-${now}-${uuid.slice(0, 8)}.md`;
+    const content = [
+      '---',
+      'atlas_version: v1',
+      `atlas_id: "${uuid}"`,
+      `memory_type: ${this.settings.defaultMemoryType}`,
+      'title: ""',
+      'memory_status: draft',
+      'atlas_authors: []',
+      'atlas_source: manual',
+      'atlas_source_ref: ""',
+      'related: []',
+      'tags: [agent-memory]',
+      `created: "${now}"`,
+      `updated: "${now}"`,
+      '---',
+      '',
+      '# ',
+      '',
+      ''
+    ].join('\n');
+
+    const file = await this.app.vault.create(fileName, content);
+    await this.app.workspace.getLeaf(false).openFile(file);
+    new obsidian.Notice(`新 Atlas 笔记已创建: ${file.name}`);
+    this.updateStatusBar();
+  }
+
+  // ── Vault Scan ──
+
+  async scanVault() {
+    const files = this.app.vault.getMarkdownFiles();
+    let atlasCount = 0;
+    let byType = {};
+    let byStatus = {};
+    let byLevel = {};
+
+    for (const file of files) {
+      const cache = this.app.metadataCache.getFileCache(file);
+      const note = SpecParser.parse(cache?.frontmatter);
+      if (note) {
+        atlasCount++;
+        byType[note.memory_type] = (byType[note.memory_type] || 0) + 1;
+        byStatus[note.memory_status] = (byStatus[note.memory_status] || 0) + 1;
+        byLevel[note.level] = (byLevel[note.level] || 0) + 1;
+      }
+    }
+
+    const lines = [
+      `📊 Vault 扫描完成`,
+      ``,
+      `总文件: ${files.length} 篇 Markdown`,
+      `Atlas 笔记: ${atlasCount} 篇`,
+      ``,
+      `按类型:`,
+      ...Object.entries(byType).map(([k, v]) => `  ${MEMORY_TYPE_COLORS[k]?.icon || '📄'} ${k}: ${v}`),
+      ``,
+      `按状态:`,
+      ...Object.entries(byStatus).map(([k, v]) => `  ${STATUS_LABELS[k]?.icon || '📋'} ${k}: ${v}`),
+      ``,
+      `按层级:`,
+      ...Object.entries(byLevel).map(([k, v]) => `  ${k}: ${v}`),
+    ];
+
+    new obsidian.Notice(lines.join('\n'), 15000);
+    console.log('Clowder Atlas Vault Scan:', { atlasCount, byType, byStatus, byLevel });
+
+    this.updateStatusBar();
+  }
+
+  // ── Canvas Generation ──
+
+  async generateCanvas() {
+    const files = this.app.vault.getMarkdownFiles();
+    const nodes = [];
+    const edges = [];
+    const atlasNotes = [];
+
+    // Collect Atlas notes
+    for (const file of files) {
+      const cache = this.app.metadataCache.getFileCache(file);
+      const note = SpecParser.parse(cache?.frontmatter);
+      if (note) {
+        atlasNotes.push({ file, note, cache });
+      }
+    }
+
+    if (atlasNotes.length === 0) {
+      new obsidian.Notice('未找到 Atlas 笔记，请先创建或标记一些笔记');
+      return;
+    }
+
+    // Group by memory_type
+    const groups = {};
+    for (const { file, note } of atlasNotes) {
+      const type = note.memory_type || 'unknown';
+      if (!groups[type]) groups[type] = [];
+      groups[type].push({ file, note });
+    }
+
+    // Layout: arrange groups vertically, notes horizontally within each group
+    let groupY = 50;
+    const nodeWidth = 280;
+    const nodeHeight = 120;
+    const padding = 30;
+    let nodeIdMap = {};
+
+    for (const [type, items] of Object.entries(groups)) {
+      const typeInfo = MEMORY_TYPE_COLORS[type] || { hex: '#888888', label: type };
+
+      // Group node
+      const groupWidth = Math.max(400, items.length * (nodeWidth + padding) + padding);
+      const groupId = 'group-' + type;
+      nodes.push({
+        id: groupId,
+        type: 'group',
+        x: 30,
+        y: groupY,
+        width: groupWidth,
+        height: nodeHeight + padding * 2 + 40,
+        color: this._canvasColor(typeInfo.hex),
+        label: `${typeInfo.label} (${type})`
+      });
+
+      // Note nodes inside group
+      let nodeX = 30 + padding;
+      for (const { file, note } of items) {
+        const nodeId = this._generateSimpleId();
+        nodeIdMap[file.path] = nodeId;
+
+        const lumState = LUMINANCE_STATES[note.luminance];
+        nodes.push({
+          id: nodeId,
+          type: 'file',
+          file: file.path,
+          x: nodeX,
+          y: groupY + 40 + padding,
+          width: nodeWidth,
+          height: nodeHeight,
+          color: lumState ? this._canvasColor(lumState.hex) : undefined,
+        });
+        nodeX += nodeWidth + padding;
+      }
+
+      groupY += nodeHeight + padding * 2 + 40 + 50;
+    }
+
+    // Create edges from BOTH content wikilinks AND frontmatter `related` field
+    const edgeSet = new Set(); // dedupe by "source→target"
+    for (const { file, note, cache } of atlasNotes) {
+      const sourceId = nodeIdMap[file.path];
+      if (!sourceId) continue;
+
+      // Collect all link targets (content + related frontmatter)
+      const targets = [];
+
+      // Content wikilinks
+      if (cache?.links) {
+        for (const link of cache.links) {
+          const dest = this.app.metadataCache.getFirstLinkpathDest(link.link, file.path);
+          if (dest) targets.push(dest.path);
+        }
+      }
+
+      // Frontmatter related (parse wikilinks)
+      if (note.related) {
+        for (const raw of note.related) {
+          const parsed = SpecParser.parseWikilink(raw);
+          if (!parsed) continue;
+          const dest = this.app.metadataCache.getFirstLinkpathDest(parsed.target, file.path);
+          if (dest) targets.push(dest.path);
+        }
+      }
+
+      // Create edges (deduplicated)
+      for (const targetPath of targets) {
+        if (nodeIdMap[targetPath]) {
+          const edgeKey = `${sourceId}→${nodeIdMap[targetPath]}`;
+          if (!edgeSet.has(edgeKey)) {
+            edgeSet.add(edgeKey);
+            edges.push({
+              id: this._generateSimpleId(),
+              fromNode: sourceId,
+              toNode: nodeIdMap[targetPath],
+              fromSide: 'right',
+              toSide: 'left',
+            });
+          }
+        }
+      }
+    }
+
+    // Write canvas file
+    const canvasDir = this.settings.canvasDir;
+    if (!this.app.vault.getAbstractFileByPath(canvasDir)) {
+      await this.app.vault.createFolder(canvasDir);
+    }
+
+    const now = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const canvasPath = `${canvasDir}/atlas-${now}.canvas`;
+    const canvasData = JSON.stringify({ nodes, edges }, null, 2);
+
+    const canvasFile = await this.app.vault.create(canvasPath, canvasData);
+    await this.app.workspace.getLeaf(false).openFile(canvasFile);
+    new obsidian.Notice(`Atlas Canvas 已生成: ${atlasNotes.length} 笔记, ${edges.length} 连接`);
+  }
+
+  // ── Markdown Post Processor (Recall Badge) ──
+
+  postProcessMarkdown(el, ctx) {
+    if (!this.settings.showRecallBadge) return;
+
+    const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
+    if (!file) return;
+
+    const cache = this.app.metadataCache.getFileCache(file);
+    const note = SpecParser.parse(cache?.frontmatter);
+    if (!note) return;
+
+    // Add luminance class to reading view
+    const lumState = LUMINANCE_STATES[note.luminance];
+    if (lumState && this.settings.enableLuminanceCSS) {
+      el.addClass(lumState.cssClass);
+    }
+
+    // Skip frontmatter section block
+    if (el.hasClass('mod-frontmatter') || el.querySelector('.frontmatter, pre.frontmatter')) {
+      return;
+    }
+
+    // Deduplicated Cat Cafe Recall Banner at the top section of Reading View
+    const isTopHeading = Boolean(el.querySelector('h1'));
+    const isFirstSectionOfDoc = Boolean(ctx.docId && this._lastBannerDocId !== ctx.docId);
+    if ((isTopHeading || isFirstSectionOfDoc) && !el.querySelector('.atlas-reading-banner')) {
+      if (ctx.docId) this._lastBannerDocId = ctx.docId;
+      const banner = createDiv({ cls: 'atlas-reading-banner' });
+      const effectiveLum = note.luminance_pinned ? 'active' : (note.luminance || 'warm');
+      const effLumState = LUMINANCE_STATES[effectiveLum] || LUMINANCE_STATES.warm;
+      const memInfo = MEMORY_TYPE_COLORS[note.memory_type];
+      const statusInfo = STATUS_LABELS[note.memory_status] || STATUS_LABELS.draft;
+      const firstAuthor = note.atlas_authors[0] ||
+        (note.atlas_author_details[0] && (note.atlas_author_details[0].name || note.atlas_author_details[0].id)) ||
+        (note.legacy_authors[0] && (note.legacy_authors[0].name || note.legacy_authors[0]));
+      const catInfo = firstAuthor ? SpecParser.resolveCatColor(firstAuthor) : null;
+
+      banner.createEl('span', {
+        text: `${effLumState.icon} ${effLumState.label}`,
+        cls: 'atlas-reading-banner-pill',
+      });
+      if (memInfo) {
+        banner.createEl('span', {
+          text: `${memInfo.icon} ${memInfo.label}`,
+          cls: 'atlas-reading-banner-pill',
+        });
+      }
+      banner.createEl('span', {
+        text: `${statusInfo.icon} ${statusInfo.label} · ${note.level}`,
+        cls: 'atlas-reading-banner-meta',
+      });
+      if (catInfo || firstAuthor) {
+        banner.createEl('span', {
+          text: `🐾 ${catInfo ? catInfo.name : firstAuthor}`,
+          cls: 'atlas-reading-banner-cat',
+        });
+      }
+      banner.createEl('span', {
+        text: '溯源透镜 →',
+        cls: 'atlas-reading-banner-cta',
+      });
+      banner.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.activateLens();
+      });
+      el.prepend(banner);
+    }
+  }
+
+  // ── Status Bar ──
+
+  updateStatusBar() {
+    if (!this.statusBarItem) return;
+    const files = this.app.vault.getMarkdownFiles();
+    let count = 0;
+    for (const file of files) {
+      const cache = this.app.metadataCache.getFileCache(file);
+      if (SpecParser.parse(cache?.frontmatter)) count++;
+    }
+    if (this.isCafeConnected) {
+      const summoned = this.getSummonedCats().length;
+      this.statusBarItem.setText(`🐾 Atlas: ${count} · 伴读 ${summoned}/${this.cafeClient.cats.length}猫`);
+    } else {
+      this.statusBarItem.setText(`🐾 Atlas: ${count}`);
+    }
+  }
+
+  // ── Helpers ──
+
+  _generateUUID() {
+    // UUIDv4
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  _generateSimpleId() {
+    return Math.random().toString(36).substring(2, 18);
+  }
+
+  _canvasColor(hex) {
+    // JSON Canvas 1.0 spec: color is 1-6 (preset) or "#RRGGBB" (custom hex)
+    // Obsidian preset mapping: 1=red, 2=orange, 3=yellow, 4=green, 5=cyan, 6=purple
+    // We use presets where close enough, custom hex otherwise
+    const colorMap = {
+      '#FFD700': '3',       // yellow (active luminance → yellow preset)
+      '#DEB887': '2',       // warm → orange preset
+      '#A9B7C6': undefined, // cool → no color (default)
+      '#5C6370': undefined, // dormant → no color
+      '#6C8EBF': '5',       // semantic blue → cyan preset (closest)
+      '#D4A574': '2',       // episodic amber → orange preset
+      '#6AAF6A': '4',       // procedural green → green preset
+      '#E8B84B': '3',       // warm gold → yellow preset
+    };
+    return colorMap[hex] || undefined;
+  }
+
+  /** Returns local date string YYYY-MM-DD (user's timezone, not UTC) */
+  _localDate() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+}
+
+module.exports = ClowderAtlasPlugin;

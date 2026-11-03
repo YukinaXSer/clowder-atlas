@@ -1,0 +1,2370 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Clowder Atlas — styles.css  v0.5.0 (Cat Cafe Artisan Edition)
+   Warm Espresso & Oat Milk Latte Aesthetics
+   Designed by 金渐层/小多子 (@cat-gpy5qnmg) & 布偶猫/宪宪 (@opus)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── CSS Custom Properties (Cat Cafe Core Tokens) ── */
+:root {
+  /* Cat Breed Signature Palette */
+  --atlas-cat-opus: #6C8EBF;
+  --atlas-cat-opus-soft: rgba(108, 142, 191, 0.14);
+  --atlas-cat-astra: #D4A574;
+  --atlas-cat-astra-soft: rgba(212, 165, 116, 0.16);
+  --atlas-cat-argon: #E8B84B;
+  --atlas-cat-argon-soft: rgba(232, 184, 75, 0.16);
+  --atlas-cat-kimi: #9FB1C8;
+  --atlas-cat-kimi-soft: rgba(159, 177, 200, 0.15);
+  --atlas-cat-fish: #5B9EA6;
+  --atlas-cat-fish-soft: rgba(91, 158, 166, 0.15);
+
+  /* Cat Cafe Artisanal Roastery Palette */
+  --atlas-cafe-caramel: #C87D55;
+  --atlas-cafe-latte: #D4956A;
+  --atlas-cafe-honey: #E8B84B;
+  --atlas-cafe-mocha: #8B5E3C;
+  --atlas-cafe-sage: #5E9E6E;
+
+  /* Luminance 4-Tier Spectrum */
+  --atlas-lum-active: #E8B84B;
+  --atlas-lum-warm: #D4956A;
+  --atlas-lum-cool: #8FA3B8;
+  --atlas-lum-dormant: #7A7570;
+
+  /* Layout & Geometry */
+  --atlas-radius-lg: 14px;
+  --atlas-radius: 11px;
+  --atlas-radius-sm: 7px;
+  --atlas-radius-pill: 999px;
+  --atlas-gap: 12px;
+  --atlas-card-pad: 13px 15px;
+  --atlas-transition: 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ── Theme-Specific Surface Tokens ── */
+body.theme-light {
+  --atlas-bg-panel: linear-gradient(180deg, #FDFBF7 0%, #F6F0E6 100%);
+  --atlas-presence: #3f8552;
+  --atlas-surface: #FAF6EF;
+  --atlas-bg-card: rgba(255, 253, 249, 0.88);
+  --atlas-bg-card-hover: #FFFFFF;
+  --atlas-bg-subtle: rgba(186, 140, 99, 0.07);
+  --atlas-bg-pill: rgba(186, 140, 99, 0.11);
+  --atlas-border-card: rgba(180, 142, 104, 0.22);
+  --atlas-border-hover: rgba(200, 125, 85, 0.48);
+  --atlas-shadow-card: 0 2px 10px rgba(120, 82, 48, 0.05), 0 1px 2px rgba(120, 82, 48, 0.04);
+  --atlas-shadow-hover: 0 6px 18px rgba(120, 82, 48, 0.10);
+  --atlas-text-title: #3B2A1E;
+  --atlas-text-body: #4A382B;
+  --atlas-text-sub: #846C5B;
+  --atlas-accent-primary: #C4744A;
+  --atlas-accent-primary-hover: #A85D36;
+}
+
+body.theme-dark {
+  --atlas-bg-panel: linear-gradient(180deg, #1D1815 0%, #151210 100%);
+  --atlas-presence: #84c793;
+  --atlas-surface: #191412;
+  --atlas-bg-card: rgba(42, 34, 29, 0.65);
+  --atlas-bg-card-hover: rgba(54, 43, 36, 0.82);
+  --atlas-bg-subtle: rgba(212, 165, 116, 0.07);
+  --atlas-bg-pill: rgba(212, 165, 116, 0.12);
+  --atlas-border-card: rgba(212, 165, 116, 0.14);
+  --atlas-border-hover: rgba(232, 184, 75, 0.38);
+  --atlas-shadow-card: 0 4px 14px rgba(0, 0, 0, 0.22);
+  --atlas-shadow-hover: 0 8px 22px rgba(0, 0, 0, 0.34);
+  --atlas-text-title: #F5EBE1;
+  --atlas-text-body: #E2D5C8;
+  --atlas-text-sub: #A69382;
+  --atlas-accent-primary: #CA8058;
+  --atlas-accent-primary-hover: #DF946B;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Provenance Lens — Right Sidebar Observatory
+   ═══════════════════════════════════════════════════════════════════ */
+
+.atlas-provenance-lens {
+  padding: 12px 14px 24px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--atlas-text-body, var(--text-normal));
+  background: var(--atlas-bg-panel);
+  min-height: 100%;
+}
+
+/* ── Persistent Cat Cafe Top Bar (Always Visible!) ── */
+.atlas-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 11px;
+  margin-bottom: 12px;
+  background: var(--atlas-bg-card);
+  border: 1px solid var(--atlas-border-card);
+  border-radius: var(--atlas-radius);
+  box-shadow: var(--atlas-shadow-card);
+  backdrop-filter: blur(10px);
+}
+
+.atlas-topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--atlas-text-title, var(--text-normal));
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.atlas-topbar-paw {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, rgba(200, 125, 85, 0.22), rgba(232, 184, 75, 0.22));
+  font-size: 12px;
+}
+
+.atlas-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.atlas-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--atlas-radius-pill);
+  border: 1px solid var(--atlas-border-card);
+  background: var(--atlas-bg-subtle);
+  color: var(--atlas-text-body, var(--text-normal));
+  cursor: pointer;
+  transition: all var(--atlas-transition);
+  white-space: nowrap;
+}
+
+.atlas-icon-btn:hover {
+  background: var(--atlas-accent-primary);
+  color: #FFF;
+  border-color: var(--atlas-accent-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(200, 125, 85, 0.25);
+}
+
+.atlas-icon-btn-star {
+  background: linear-gradient(135deg, rgba(232, 184, 75, 0.18), rgba(200, 125, 85, 0.18));
+  border-color: rgba(232, 184, 75, 0.35);
+  color: var(--atlas-text-title, var(--text-normal));
+}
+
+/* ── Hero Note Header Card ── */
+.atlas-lens-header {
+  margin-bottom: var(--atlas-gap);
+  padding: 14px 15px;
+  background: var(--atlas-bg-card);
+  border-radius: var(--atlas-radius-lg);
+  border: 1px solid var(--atlas-border-card);
+  box-shadow: var(--atlas-shadow-card);
+  position: relative;
+  overflow: hidden;
+}
+
+.atlas-lens-header::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--atlas-cafe-caramel), var(--atlas-cafe-honey), var(--atlas-cat-opus));
+  opacity: 0.85;
+}
+
+.atlas-lens-header h4 {
+  margin: 2px 0 6px 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--atlas-text-title, var(--text-normal));
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+
+.atlas-header-path {
+  font-size: 11px;
+  color: var(--atlas-text-sub, var(--text-muted));
+  font-family: var(--font-monospace);
+  opacity: 0.78;
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+
+.atlas-lens-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.atlas-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--atlas-radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: all var(--atlas-transition);
+}
+
+.atlas-badge:hover {
+  transform: translateY(-1px);
+}
+
+.atlas-status-draft {
+  background: rgba(108, 142, 191, 0.14);
+  color: var(--atlas-cat-opus);
+  border: 1px solid rgba(108, 142, 191, 0.28);
+}
+
+.atlas-status-pending {
+  background: rgba(212, 149, 106, 0.16);
+  color: var(--atlas-cafe-caramel);
+  border: 1px solid rgba(212, 149, 106, 0.32);
+}
+
+.atlas-status-crystallized {
+  background: rgba(94, 158, 110, 0.16);
+  color: var(--atlas-cafe-sage);
+  border: 1px solid rgba(94, 158, 110, 0.32);
+}
+
+.atlas-status-dormant {
+  background: var(--atlas-bg-pill);
+  color: var(--atlas-text-sub);
+  border: 1px dashed var(--atlas-border-card);
+}
+
+.atlas-type-badge {
+  border: 1px solid;
+  background: var(--atlas-bg-subtle);
+}
+
+.atlas-level-badge {
+  background: var(--atlas-bg-pill);
+  color: var(--atlas-text-sub);
+  font-family: var(--font-monospace);
+  font-size: 10px;
+}
+
+/* Quick Action Pill inside Header (e.g., Crystallize Now) */
+.atlas-quick-action-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--atlas-radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--atlas-cafe-caramel), var(--atlas-cafe-honey));
+  color: #FFF;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(200, 125, 85, 0.25);
+  transition: all var(--atlas-transition);
+}
+
+.atlas-quick-action-pill:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 4px 12px rgba(200, 125, 85, 0.38);
+}
+
+/* ── Section Cards ── */
+.atlas-lens-section {
+  margin-bottom: var(--atlas-gap);
+  padding: var(--atlas-card-pad);
+  background: var(--atlas-bg-card);
+  border-radius: var(--atlas-radius);
+  border: 1px solid var(--atlas-border-card);
+  box-shadow: var(--atlas-shadow-card);
+  transition: all var(--atlas-transition);
+}
+
+.atlas-lens-section:hover {
+  border-color: var(--atlas-border-hover);
+  background: var(--atlas-bg-card-hover);
+  box-shadow: var(--atlas-shadow-hover);
+}
+
+.atlas-section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.atlas-provenance-lens h5 {
+  margin: 0 0 9px 0;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--atlas-text-title, var(--text-normal));
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.atlas-section-title-row h5 {
+  margin-bottom: 0;
+}
+
+/* ── Unindexed Note — One-Click Enroll Card ── */
+.atlas-enroll-card {
+  margin-bottom: var(--atlas-gap);
+  padding: 14px 15px;
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.12) 0%, rgba(232, 184, 75, 0.06) 100%);
+  border: 1px solid rgba(212, 149, 106, 0.32);
+  border-radius: var(--atlas-radius-lg);
+  box-shadow: var(--atlas-shadow-card);
+}
+
+.atlas-enroll-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--atlas-text-title);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.atlas-enroll-desc {
+  font-size: 11.5px;
+  color: var(--atlas-text-sub);
+  margin-bottom: 10px;
+  line-height: 1.45;
+}
+
+.atlas-enroll-btn-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.atlas-enroll-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 6px;
+  border-radius: var(--atlas-radius-sm);
+  border: 1px solid var(--atlas-border-card);
+  background: var(--atlas-bg-card);
+  color: var(--atlas-text-body);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--atlas-transition);
+}
+
+.atlas-enroll-btn:hover {
+  border-color: var(--atlas-accent-primary);
+  background: var(--atlas-accent-primary);
+  color: #FFF;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(200, 125, 85, 0.25);
+}
+
+/* ── Authors (共创基因 — Cat Cafe Avatar Cards) ── */
+.atlas-author-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.atlas-author-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--atlas-radius-sm);
+  background: var(--atlas-bg-subtle);
+  border: 1px solid transparent;
+  transition: all var(--atlas-transition);
+}
+
+.atlas-author-row:hover {
+  border-color: var(--atlas-border-card);
+  transform: translateX(2px);
+}
+
+.atlas-author-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.atlas-author-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+  color: #FFF;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+}
+
+.atlas-author-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.atlas-author-name {
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--atlas-text-title);
+}
+
+.atlas-author-sub {
+  font-size: 10.5px;
+  color: var(--atlas-text-sub);
+}
+
+.atlas-author-role-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--atlas-radius-pill);
+  background: var(--atlas-bg-pill);
+  color: var(--atlas-text-sub);
+}
+
+/* ── Evidence Chain (因果证据链时间轴) ── */
+.atlas-evidence-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+.atlas-evidence-card {
+  padding: 10px 12px;
+  border: 1px solid var(--atlas-border-card);
+  border-radius: var(--atlas-radius-sm);
+  background: var(--atlas-bg-subtle);
+  border-left: 3.5px solid var(--atlas-cafe-latte);
+  transition: all var(--atlas-transition);
+}
+
+.atlas-evidence-card:hover {
+  border-left-color: var(--atlas-cafe-caramel);
+  background: var(--atlas-bg-card-hover);
+  transform: translateX(2px);
+}
+
+.atlas-evidence-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.atlas-evidence-type {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--atlas-cafe-caramel);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.atlas-evidence-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--atlas-text-title);
+  margin-bottom: 5px;
+  line-height: 1.35;
+}
+
+.atlas-evidence-ref code {
+  font-size: 10.5px;
+  padding: 2px 7px;
+  background: var(--atlas-bg-pill);
+  color: var(--atlas-text-body);
+  border-radius: 5px;
+}
+
+/* ── Luminance Meter (记忆光泽度) ── */
+.atlas-luminance-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.atlas-luminance-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.atlas-luminance-badge-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.atlas-luminance-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.atlas-luminance-label {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--atlas-text-title);
+}
+
+.atlas-pin-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--atlas-radius-pill);
+  font-size: 10.5px;
+  font-weight: 600;
+  border: 1px solid var(--atlas-border-card);
+  background: var(--atlas-bg-subtle);
+  color: var(--atlas-text-sub);
+  cursor: pointer;
+  transition: all var(--atlas-transition);
+}
+
+.atlas-pin-toggle-btn:hover,
+.atlas-pin-toggle-btn.is-pinned {
+  border-color: var(--atlas-lum-active);
+  background: rgba(232, 184, 75, 0.18);
+  color: var(--atlas-text-title);
+}
+
+.atlas-luminance-bar {
+  height: 7px;
+  border-radius: var(--atlas-radius-pill);
+  background: var(--atlas-bg-pill);
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.atlas-luminance-bar-fill {
+  height: 100%;
+  border-radius: var(--atlas-radius-pill);
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.atlas-luminance-unknown {
+  color: var(--atlas-text-sub);
+  font-size: 12px;
+  margin: 2px 0;
+}
+
+.atlas-luminance-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--atlas-border-card);
+}
+
+.atlas-metric {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--atlas-text-body);
+}
+
+.atlas-metric-source {
+  font-size: 10px;
+  color: var(--atlas-text-sub);
+}
+
+/* ── Related Notes Pills & Links ── */
+.atlas-related-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.atlas-related-list li {
+  padding: 0;
+  border: none;
+}
+
+.atlas-related-list a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 9px;
+  border-radius: var(--atlas-radius-sm);
+  background: var(--atlas-bg-subtle);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--atlas-text-body);
+  text-decoration: none;
+  transition: all var(--atlas-transition);
+}
+
+.atlas-related-list a:hover {
+  background: var(--atlas-bg-pill);
+  color: var(--atlas-accent-primary);
+  transform: translateX(3px);
+}
+
+/* ── Source & Info Tables ── */
+.atlas-lens-table {
+  width: 100%;
+  font-size: 12px;
+  border-collapse: collapse;
+}
+
+.atlas-lens-table td {
+  padding: 4px 0;
+  vertical-align: middle;
+}
+
+.atlas-table-label {
+  width: 64px;
+  font-weight: 600;
+  color: var(--atlas-text-sub);
+  white-space: nowrap;
+}
+
+/* ── Welcome & Empty States (Warm Cat Cafe Greeting) ── */
+.atlas-lens-welcome {
+  text-align: center;
+  padding: 28px 16px;
+  background: var(--atlas-bg-card);
+  border: 1px solid var(--atlas-border-card);
+  border-radius: var(--atlas-radius-lg);
+  box-shadow: var(--atlas-shadow-card);
+}
+
+.atlas-welcome-emblem {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 12px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(200, 125, 85, 0.2), rgba(232, 184, 75, 0.25));
+  border: 1px solid rgba(212, 165, 116, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  box-shadow: 0 4px 14px rgba(200, 125, 85, 0.15);
+}
+
+.atlas-lens-welcome h3 {
+  margin: 0 0 6px 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--atlas-text-title);
+}
+
+.atlas-lens-subtitle {
+  color: var(--atlas-text-sub);
+  margin-bottom: 18px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.atlas-lens-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.atlas-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border-radius: var(--atlas-radius);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid var(--atlas-border-card);
+  background: var(--atlas-bg-card);
+  color: var(--atlas-text-body);
+  transition: all var(--atlas-transition);
+}
+
+.atlas-btn:hover {
+  border-color: var(--atlas-border-hover);
+  background: var(--atlas-bg-card-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--atlas-shadow-hover);
+}
+
+.atlas-btn-primary {
+  background: linear-gradient(135deg, var(--atlas-accent-primary) 0%, #D4956A 100%);
+  color: #FFF !important;
+  border-color: transparent;
+  box-shadow: 0 3px 12px rgba(200, 125, 85, 0.28);
+}
+
+.atlas-btn-primary:hover {
+  background: linear-gradient(135deg, var(--atlas-accent-primary-hover) 0%, #C87D55 100%);
+  box-shadow: 0 5px 16px rgba(200, 125, 85, 0.38);
+}
+
+/* ── Cat Cafe Teaser Card ── */
+/* ── Diagnostics & Identity ── */
+.atlas-diagnostic-warning {
+  padding: 7px 11px;
+  background: rgba(232, 184, 75, 0.14);
+  border-left: 3px solid var(--atlas-cat-argon);
+  border-radius: 0 var(--atlas-radius-sm) var(--atlas-radius-sm) 0;
+  font-size: 11.5px;
+  margin: 4px 0;
+}
+
+.atlas-conflict-hint {
+  font-size: 10.5px;
+  color: var(--text-warning);
+  padding: 4px 0 2px 4px;
+}
+
+.atlas-legacy-hint {
+  font-size: 10.5px;
+  color: var(--atlas-text-sub);
+  font-style: italic;
+  margin: 2px 0 6px 0;
+}
+
+.atlas-lens-identity {
+  opacity: 0.68;
+  font-size: 11px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Reading View — Cat Cafe Recall & Luminance Banner
+   ═══════════════════════════════════════════════════════════════════ */
+
+.atlas-reading-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 7px 13px;
+  margin: 0 0 14px 0;
+  border-radius: var(--atlas-radius);
+  background: var(--atlas-bg-card);
+  border: 1px solid var(--atlas-border-card);
+  border-left: 4px solid var(--atlas-cafe-caramel);
+  box-shadow: var(--atlas-shadow-card);
+  font-size: 12px;
+  color: var(--atlas-text-body);
+  cursor: pointer;
+  transition: all var(--atlas-transition);
+}
+
+.atlas-reading-banner:hover {
+  border-color: var(--atlas-border-hover);
+  transform: translateY(-1px);
+}
+
+.atlas-reading-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.atlas-reading-banner-right {
+  font-size: 11px;
+  color: var(--atlas-text-sub);
+}
+
+.atlas-luminance-active .markdown-preview-section > :first-child {
+  border-left: 3px solid var(--atlas-lum-active);
+  padding-left: 12px;
+}
+
+.atlas-luminance-warm .markdown-preview-section > :first-child {
+  border-left: 3px solid var(--atlas-lum-warm);
+  padding-left: 12px;
+}
+
+.atlas-luminance-cool .markdown-preview-section > :first-child {
+  border-left: 2px solid var(--atlas-lum-cool);
+  padding-left: 12px;
+}
+
+.atlas-luminance-dormant .markdown-preview-section > :first-child {
+  border-left: 1px dashed var(--atlas-lum-dormant);
+  padding-left: 12px;
+  opacity: 0.78;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Star Chart — Observatory layout v2
+   root grid: top bar (title + filters) · stage (canvas + overlays) · bottom bar
+   Spec: research/agent-memory/internal/clowder-atlas/star-chart-layout-v2.md
+   Colours are local to this view; other views and host themes are untouched.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Root = the leaf's .view-content. Host gives it 12/12/32px padding — remove it here only. */
+.workspace-leaf-content .view-content.atlas-star-chart-container {
+  --atlas-star-surface: #1B191B;
+  --atlas-star-panel: rgba(37, 33, 35, 0.96);
+  --atlas-star-line: #343034;
+  --atlas-star-text: #EEE8E2;
+  --atlas-star-muted: #AAA1A0;
+  --atlas-star-accent: #E6BC7A;
+  --atlas-star-pad: 20px;
+  flex: 1 1 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 56px minmax(0, 1fr) auto;   /* bottom bar: 48px, taller only when lifted */
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0;
+  overflow: hidden;
+  background: #141315;
+  color: var(--atlas-star-text);
+  font-family: var(--font-interface);
+  user-select: none;
+}
+
+.workspace-leaf-content .view-content.atlas-star-chart-container.is-empty {
+  grid-template-rows: 56px minmax(0, 1fr);
+}
+
+.workspace-leaf-content .view-content.atlas-star-chart-container.is-compact {
+  --atlas-star-pad: 16px;
+}
+
+/* ── Local control reset ──
+   Host `button:not(.clickable-icon)` (0,1,1) paints a white --interactive-normal fill and shadow;
+   host `select` brings its own fill, padding and shadow. These selectors are (0,2,0)+ so they win
+   without !important. */
+.atlas-star-chart-container .atlas-star-btn,
+.atlas-star-chart-container .atlas-star-select {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  height: 32px;
+  min-height: 0;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  corner-shape: round;
+  background: transparent;
+  background-blend-mode: normal;
+  box-shadow: none;
+  color: var(--atlas-star-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: normal;
+  text-align: start;
+  text-transform: none;
+  outline: none;
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.atlas-star-chart-container .atlas-star-btn:hover {
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: none;
+  color: #FFF7E9;
+}
+
+.atlas-star-chart-container .atlas-star-btn:active {
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: none;
+}
+
+.atlas-star-chart-container .atlas-star-btn:focus-visible,
+.atlas-star-chart-container .atlas-star-select:focus-visible {
+  outline: 2px solid var(--atlas-star-accent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.atlas-star-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+/* ── Top bar: title left, filters right ── */
+.atlas-star-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 0;
+  padding: 0 var(--atlas-star-pad);
+  background: var(--atlas-star-surface);
+  border-bottom: 1px solid var(--atlas-star-line);
+}
+
+.atlas-star-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 550;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: var(--atlas-star-text);
+}
+
+.atlas-star-title-icon {
+  display: inline-flex;
+  color: var(--atlas-star-accent);
+}
+
+.atlas-star-chart-container .atlas-star-title-icon svg {
+  width: 19px;
+  height: 19px;
+  stroke-width: 1.5px;
+}
+
+.atlas-star-filters {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+}
+
+.atlas-star-chart-container .atlas-star-filter {
+  position: relative;
+  padding: 0 13px;
+}
+
+/* Selected filter: soft amber fill + 16×2 mark on the bar's bottom edge (stays on hover) */
+.atlas-star-chart-container .atlas-star-filter[aria-pressed="true"] {
+  color: var(--atlas-star-accent);
+  background: rgba(230, 188, 122, 0.063);
+}
+
+.atlas-star-chart-container .atlas-star-filter[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: calc(50% - 8px);
+  bottom: -12px;
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--atlas-star-accent);
+}
+
+/* Compact pane: one select instead of six buttons */
+.atlas-star-filter-select {
+  position: relative;
+  display: none;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.atlas-star-chart-container .atlas-star-select {
+  padding: 0 30px 0 12px;
+  color: var(--atlas-star-accent);
+  background: rgba(230, 188, 122, 0.063);
+}
+
+.atlas-star-chart-container .atlas-star-select:hover {
+  background: rgba(230, 188, 122, 0.1);
+  box-shadow: none;
+}
+
+.atlas-star-chart-container .atlas-star-select option {
+  background: #242123;
+  color: var(--atlas-star-text);
+  font-weight: 400;
+}
+
+.atlas-star-select-chevron {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  color: var(--atlas-star-accent);
+  pointer-events: none;
+}
+
+.atlas-star-chart-container .atlas-star-select-chevron svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.5px;
+}
+
+/* ── Stage: the canvas owns all remaining space; overlays are positioned against it ── */
+.atlas-star-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.atlas-star-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.atlas-star-scene-hint {
+  position: absolute;
+  top: 18px;
+  left: var(--atlas-star-pad);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 2 * var(--atlas-star-pad));
+  font-size: 11px;
+  color: #A79E9D;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.atlas-star-scene-hint::before {
+  content: "";
+  flex: 0 0 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #C4A173;
+}
+
+.atlas-star-scene-hint[hidden] {
+  display: none;
+}
+
+.atlas-star-tooltip {
+  position: absolute;
+  z-index: 2;
+  max-width: calc(100% - 24px);
+  padding: 7px 10px;
+  border: 1px solid #4B4144;
+  border-radius: 6px;
+  background: #262124;
+  color: #ECE1D7;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+/* ── Legend / help panels: bottom-right of the stage, scroll inside when the pane is short ── */
+.atlas-star-popover {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  z-index: 3;
+  box-sizing: border-box;
+  width: 252px;
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+  border: 1px solid #4B4144;
+  border-radius: 10px;
+  background: var(--atlas-star-panel);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.33);
+  backdrop-filter: blur(16px);
+  color: #DFD5CE;
+  cursor: default;
+  user-select: text;
+}
+
+.atlas-star-popover[hidden] {
+  display: none;
+}
+
+.atlas-star-popover:focus {
+  outline: none;
+}
+
+.atlas-star-popover:focus-visible {
+  outline: 1px solid rgba(230, 188, 122, 0.45);
+  outline-offset: -1px;
+}
+
+.atlas-star-chart-container .atlas-star-popover h2 {
+  margin: 0 0 16px;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.4;
+  letter-spacing: normal;
+  color: var(--atlas-star-text);
+}
+
+.atlas-star-chart-container .atlas-star-popover h3 {
+  margin: 18px 0 10px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: normal;
+  color: #B9AD9F;
+}
+
+.atlas-star-chart-container .atlas-star-popover h2 + h3 {
+  margin-top: 0;
+}
+
+.atlas-star-chart-container .atlas-star-popover p {
+  margin: 12px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #B6AAA4;
+}
+
+.atlas-star-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 9px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #DFD5CE;
+}
+
+.atlas-star-legend-row small {
+  margin-left: auto;
+  font-size: 11px;
+  color: #B7AAA3;
+}
+
+/* 7px dots sit in the same 10px slot as the ring so labels line up */
+.atlas-star-dot {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  margin: 0 1.5px;
+  border-radius: 50%;
+  background: var(--dot, #A9B7C6);
+}
+
+.atlas-star-dot.is-ring {
+  flex-basis: 10px;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  margin: 0;
+  border: 1px solid #E8B84B;
+  background: transparent;
+}
+
+.atlas-star-help-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 13px 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.atlas-star-help-row span:first-child {
+  color: #B6AAA4;
+}
+
+/* ── Bottom bar: totals left, actions right ── */
+/* Status-bar avoidance (both set from JS):
+   --atlas-star-statusbar      = width of Obsidian's floating status bar over this bar → actions slide left
+   --atlas-star-statusbar-lift = its height, used only when the actions cannot fit beside it */
+.atlas-star-bottombar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-sizing: border-box;
+  height: calc(48px + var(--atlas-star-statusbar-lift, 0px));
+  min-width: 0;
+  padding: 0 max(16px, calc(var(--atlas-star-statusbar, 0px) + 12px)) var(--atlas-star-statusbar-lift, 0px) var(--atlas-star-pad);
+  background: var(--atlas-star-surface);
+  border-top: 1px solid var(--atlas-star-line);
+}
+
+/* Totals give way whole: one fixed-height line with wrapping, so a total that no longer fits
+   (e.g. a wide floating status bar) drops to the clipped second line instead of being cut mid-glyph. */
+.atlas-star-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;          /* number/label baselines align inside each .atlas-star-stat */
+  align-content: flex-start;
+  column-gap: 16px;
+  height: 20px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--atlas-star-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Zero-width first item: lets even the first total wrap away rather than be clipped */
+.atlas-star-stats::before {
+  content: "";
+  flex: 0 0 0;
+  height: 100%;                 /* keeps line 1 full height, so wrapped totals land out of view */
+  margin-right: -16px;
+}
+
+.atlas-star-stat b {
+  margin-right: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #DED5CE;
+}
+
+.atlas-star-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.atlas-star-chart-container .atlas-star-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 9px;
+  color: #BCB2AC;
+  white-space: nowrap;
+}
+
+.atlas-star-chart-container .atlas-star-action.is-icon-only {
+  width: 32px;
+  padding: 0;
+}
+
+.atlas-star-chart-container .atlas-star-action[aria-expanded="true"] {
+  color: var(--atlas-star-accent);
+  background: rgba(230, 188, 122, 0.063);
+}
+
+.atlas-star-icon {
+  display: inline-flex;
+}
+
+.atlas-star-chart-container .atlas-star-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.5px;
+}
+
+.atlas-star-divider {
+  flex: 0 0 1px;
+  width: 1px;
+  height: 16px;
+  margin: 0 6px;
+  background: var(--atlas-star-line);
+}
+
+/* ── Pane < 680px: filters → one select; icon-only actions; drop the Atlas total ── */
+.atlas-star-chart-container.is-compact .atlas-star-topbar {
+  gap: 12px;
+}
+
+.atlas-star-chart-container.is-compact .atlas-star-filters {
+  display: none;
+}
+
+.atlas-star-chart-container.is-compact .atlas-star-filter-select {
+  display: flex;
+}
+
+.atlas-star-chart-container.is-compact .atlas-star-action-label,
+.atlas-star-chart-container.is-compact .atlas-star-stat.is-atlas-count {
+  display: none;
+}
+
+.atlas-star-chart-container.is-compact .atlas-star-action {
+  width: 32px;
+  padding: 0;
+}
+
+.atlas-star-chart-container.is-compact .atlas-star-stats {
+  column-gap: 12px;
+}
+
+.atlas-star-chart-container.is-compact .atlas-star-stats::before {
+  margin-right: -12px;
+}
+
+.atlas-star-chart-container.is-compact .atlas-star-bottombar {
+  gap: 8px;
+  padding-right: max(12px, calc(var(--atlas-star-statusbar, 0px) + 12px));
+}
+
+/* ── Pane < 440px: only the star total stays; all five actions remain one click away ── */
+.atlas-star-chart-container.is-narrow .atlas-star-stat.is-edge-count {
+  display: none;
+}
+
+.atlas-star-chart-container.is-narrow .atlas-star-actions {
+  gap: 2px;
+}
+
+.atlas-star-chart-container.is-narrow .atlas-star-divider {
+  margin: 0 4px;
+}
+
+/* ── Empty vault: guidance fills the stage ── */
+.atlas-star-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  font-size: 14px;
+  line-height: 1.6;
+  text-align: center;
+  color: rgba(235, 215, 195, 0.7);
+  background: radial-gradient(circle at 50% 42%, #231C26 0%, #17131A 55%, #0F0C12 100%);
+}
+
+/* ── Cat Cafe Connection Status ── */
+.atlas-conn-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--atlas-text-sub);
+  margin-left: 6px;
+  vertical-align: middle;
+  transition: background 0.3s;
+}
+.atlas-conn-dot.is-connected {
+  background: #4CAF50;
+  box-shadow: 0 0 6px rgba(76, 175, 80, 0.5);
+}
+.atlas-icon-btn-hub {
+  background: var(--atlas-accent-primary) !important;
+  color: #fff !important;
+}
+
+/* ── Cat Cafe Live Panel ── */
+.atlas-cafe-panel {
+  margin: 12px 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--atlas-bg-card);
+  border: 1px solid var(--atlas-border-card);
+}
+.atlas-cafe-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--atlas-accent-primary);
+  margin: 0 0 10px 0;
+}
+.atlas-cafe-cats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.atlas-cafe-cat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.atlas-cafe-cat-row:hover {
+  background: var(--atlas-bg-pill);
+}
+/* ═══════════════════════════════════════════════════
+   3D Interactive Cat Avatar System
+   ═══════════════════════════════════════════════════ */
+
+/* Base container — perspective + sizing */
+.atlas-avatar-3d {
+  --avatar-accent: #C87D55;
+  --avatar-size: 42px;
+  position: relative;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  flex-shrink: 0;
+  perspective: 200px;
+  cursor: pointer;
+}
+
+/* Size variants */
+.atlas-avatar-3d-cafe       { --avatar-size: 42px; }
+.atlas-avatar-3d-author     { --avatar-size: 36px; }
+.atlas-avatar-3d-chat       { --avatar-size: 28px; }
+.atlas-avatar-3d-mini       { --avatar-size: 20px; }
+.atlas-avatar-3d-seminar    { --avatar-size: 48px; }
+
+/* Animated gradient glow ring */
+.atlas-avatar-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    var(--avatar-accent),
+    transparent 40%,
+    var(--avatar-accent) 50%,
+    transparent 90%,
+    var(--avatar-accent)
+  );
+  animation: avatar-ring-spin 4s linear infinite;
+  opacity: 0.6;
+  transition: opacity 0.3s;
+}
+.atlas-avatar-3d:hover .atlas-avatar-ring {
+  opacity: 1;
+}
+@keyframes avatar-ring-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Inner circle — holds photo with depth effect */
+.atlas-avatar-inner {
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--atlas-bg-card);
+  box-shadow:
+    inset 0 2px 4px rgba(0,0,0,0.3),
+    0 2px 8px rgba(0,0,0,0.2);
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s;
+  transform-style: preserve-3d;
+}
+.atlas-avatar-3d:hover .atlas-avatar-inner {
+  transform: translateY(-2px) scale(1.08) rotateY(8deg);
+  box-shadow:
+    inset 0 2px 4px rgba(0,0,0,0.2),
+    0 6px 20px rgba(0,0,0,0.25),
+    0 0 16px color-mix(in srgb, var(--avatar-accent) 40%, transparent);
+}
+
+/* Photo image */
+.atlas-avatar-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: filter 0.3s;
+}
+.atlas-avatar-3d:hover .atlas-avatar-photo {
+  filter: brightness(1.1) saturate(1.1);
+}
+
+/* Emoji fallback */
+.atlas-avatar-emoji {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: calc(var(--avatar-size) * 0.5);
+  background: linear-gradient(135deg, var(--avatar-accent), color-mix(in srgb, var(--avatar-accent) 60%, #000));
+  color: #fff;
+}
+
+/* Online status pulse dot */
+.atlas-avatar-status-dot {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: calc(var(--avatar-size) * 0.26);
+  height: calc(var(--avatar-size) * 0.26);
+  border-radius: 50%;
+  background: #4CAF50;
+  border: 2px solid var(--atlas-surface);
+  animation: avatar-pulse 2.5s ease-in-out infinite;
+  z-index: 2;
+}
+@keyframes avatar-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.5); }
+  50% { box-shadow: 0 0 0 4px rgba(76, 175, 80, 0); }
+}
+
+/* Mini variant: no ring animation (too small), simpler */
+.atlas-avatar-3d-mini .atlas-avatar-ring {
+  animation: none;
+  background: var(--avatar-accent);
+  opacity: 0.8;
+}
+.atlas-avatar-3d-mini .atlas-avatar-status-dot {
+  display: none;
+}
+.atlas-cafe-cat-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.atlas-cafe-cat-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--atlas-text-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.atlas-cafe-cat-sub {
+  font-size: 10.5px;
+  color: var(--atlas-text-sub);
+}
+.atlas-cafe-threads {
+  margin-bottom: 10px;
+}
+.atlas-cafe-threads h5 {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 6px 0;
+  color: var(--atlas-text-body);
+}
+.atlas-cafe-thread-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-bottom: 3px;
+}
+.atlas-cafe-thread-row:hover {
+  background: var(--atlas-bg-pill);
+}
+.atlas-cafe-thread-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--atlas-text-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.atlas-cafe-thread-cats {
+  font-size: 10.5px;
+  color: var(--atlas-accent-primary);
+}
+.atlas-cafe-thread-ago {
+  font-size: 10px;
+  color: var(--atlas-text-sub);
+}
+.atlas-btn-cafe {
+  background: var(--atlas-accent-primary);
+  color: #fff;
+  border: none;
+  width: 100%;
+  text-align: center;
+  font-weight: 600;
+}
+.atlas-btn-cafe:hover {
+  filter: brightness(1.1);
+}
+.atlas-cafe-offline {
+  text-align: center;
+  padding: 12px;
+  color: var(--atlas-text-sub);
+  font-size: 12px;
+}
+/* Thread participant avatars */
+.atlas-cafe-thread-avatars {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 3px;
+}
+.atlas-thread-participant-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid var(--atlas-surface);
+  margin-right: -5px;
+  transition: transform 0.15s;
+}
+.atlas-thread-participant-avatar:hover {
+  transform: scale(1.2);
+  z-index: 2;
+}
+.atlas-thread-participant-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  margin-right: -5px;
+  display: inline-block;
+  border: 1.5px solid var(--atlas-surface);
+}
+.atlas-thread-more {
+  font-size: 10px;
+  color: var(--atlas-text-sub);
+  margin-left: 8px;
+}
+
+/* Author avatar handled by 3D system (.atlas-avatar-3d-author) */
+.atlas-author-avatar.atlas-avatar-fallback {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.atlas-settings-conn-status {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.atlas-conn-ok { color: #4CAF50; }
+.atlas-conn-err { color: #E57373; }
+.atlas-conn-fix-row {
+  margin-top: 6px;
+}
+.atlas-conn-fix-btn {
+  padding: 4px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--atlas-accent-primary);
+  background: transparent;
+  color: var(--atlas-accent-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.atlas-conn-fix-btn:hover {
+  background: var(--atlas-accent-primary);
+  color: #fff;
+}
+.atlas-conn-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--atlas-text-sub);
+}
+
+/* ── Cat Cafe Chat View ── */
+.atlas-chat-empty {
+  text-align: center;
+  color: var(--atlas-text-sub);
+  font-size: 12.5px;
+  padding: 40px 16px;
+}
+.atlas-chat-bubble {
+  max-width: 88%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+  position: relative;
+}
+.atlas-chat-bubble.is-user {
+  align-self: flex-end;
+  background: var(--atlas-accent-primary);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.atlas-chat-bubble.is-cat {
+  align-self: flex-start;
+  background: var(--atlas-bg-card);
+  color: var(--atlas-text-body);
+  border-bottom-left-radius: 4px;
+}
+.atlas-chat-cat-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+/* Chat avatar handled by 3D system (.atlas-avatar-3d-chat) */
+.atlas-chat-cat-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--atlas-accent-primary);
+}
+.atlas-chat-text {
+  white-space: pre-wrap;
+}
+.atlas-chat-time {
+  font-size: 10px;
+  color: var(--atlas-text-sub);
+  margin-top: 3px;
+  display: block;
+}
+.atlas-chat-bubble.is-user .atlas-chat-time {
+  color: rgba(255,255,255,0.6);
+  text-align: right;
+}
+.atlas-chat-pending {
+  font-size: 10px;
+  color: rgba(255,255,255,0.6);
+  font-style: italic;
+}
+.atlas-chat-offline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 40px 20px;
+  text-align: center;
+  gap: 8px;
+}
+.atlas-chat-offline-icon {
+  font-size: 48px;
+}
+.atlas-chat-offline h3 {
+  color: var(--atlas-text-body);
+  margin: 0;
+}
+.atlas-chat-offline p {
+  color: var(--atlas-text-sub);
+  font-size: 13px;
+}
+
+/* One-click connect and the install guide (chat panel, not connected) */
+.atlas-cafe-onboard-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 6px; }
+.atlas-cafe-onboard-result { width: 100%; max-width: 380px; font-size: 12px; color: var(--atlas-text-sub); }
+.atlas-cafe-install {
+  margin-top: 8px;
+  padding: 12px 14px;
+  text-align: left;
+  border-radius: var(--atlas-radius);
+  background: var(--atlas-bg-card);
+  border: 1px solid var(--atlas-border-card);
+  color: var(--atlas-text-body);
+}
+.atlas-cafe-install-lead { margin: 0 0 6px; font-weight: 600; color: var(--atlas-text-title); }
+.atlas-cafe-install ol { margin: 0 0 10px; padding-left: 18px; }
+.atlas-cafe-install li { margin: 3px 0; line-height: 1.5; }
+.atlas-cafe-install-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.atlas-cafe-install-note { margin: 10px 0 0; font-size: 11px; line-height: 1.5; color: var(--atlas-text-sub); }
+
+/* ═══════════════════════════════════════════════
+   Cafe chat panel v2 (chat-layout-v2.md) — all rules scoped to .atlas-cafe-chat
+   Blocks align at 12px; only the messages and the two cat rows scroll.
+   ═══════════════════════════════════════════════ */
+/* Same specificity trick as the star chart: the host pads every .view-content */
+.workspace-leaf-content .view-content.atlas-cafe-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  /* 12px alignment comes from the blocks; the host keeps its bottom room for the floating status bar */
+  padding-top: 0;
+  padding-left: 0;
+  padding-right: 0;
+  background: var(--atlas-bg-panel);
+  color: var(--atlas-text-body);
+  container-type: inline-size;
+}
+.atlas-cafe-chat [hidden] { display: none !important; }
+
+/* Host button/select/textarea styles stop at these controls (beats the host's button:not(.clickable-icon)) */
+.atlas-cafe-chat :is(button.atlas-icon-btn, button.atlas-companion-seminar-pill, button.atlas-companion-slot,
+  button.atlas-chat-hub-btn, button.atlas-chat-ctx-btn, button.atlas-chat-mention-chip, button.atlas-chat-send-btn,
+  button.atlas-chat-expand-btn, button.atlas-chat-action-pill, button.atlas-chat-config-btn, button.atlas-chat-config-action,
+  button.atlas-chat-passage-mode, button.atlas-chat-passage-clear) {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  min-height: 28px;
+  margin: 0;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: normal;
+  border: 1px solid var(--atlas-border-card);
+  border-radius: 6px;
+  background: var(--atlas-bg-card);
+  color: var(--atlas-text-body);
+  box-shadow: none;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.atlas-cafe-chat :is(button.atlas-icon-btn, button.atlas-companion-seminar-pill, button.atlas-companion-slot,
+  button.atlas-chat-hub-btn, button.atlas-chat-ctx-btn, button.atlas-chat-mention-chip, button.atlas-chat-send-btn,
+  button.atlas-chat-expand-btn, button.atlas-chat-action-pill, button.atlas-chat-config-btn, button.atlas-chat-config-action,
+  button.atlas-chat-passage-mode, button.atlas-chat-passage-clear):hover:not(:disabled) {
+  background: var(--atlas-bg-card-hover);
+  border-color: var(--atlas-border-hover);
+}
+.atlas-cafe-chat :is(button, select):focus-visible {
+  outline: 2px solid var(--atlas-accent-primary);
+  outline-offset: 2px;
+}
+.atlas-cafe-chat button:disabled { opacity: 0.5; cursor: default; }
+
+/* Navigation, compact inside the chat */
+.atlas-cafe-chat .atlas-topbar { flex: 0 0 auto; margin: 8px 12px 0; padding: 6px 8px; gap: 6px; }
+.atlas-cafe-chat .atlas-topbar-actions { gap: 4px; }
+.atlas-cafe-chat button.atlas-icon-btn { padding: 3px 6px; font-size: 11px; font-weight: 600; border-radius: var(--atlas-radius-pill); }
+
+/* 伴读席: title row (presence · 研讨会), scrollable cats, current note */
+.atlas-cafe-chat .atlas-companion-strip {
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 8px 12px 0;
+  padding: 8px;
+  border: 1px solid var(--atlas-border-card);
+  border-radius: 8px;
+  background: var(--atlas-bg-card);
+}
+.atlas-companion-strip-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+.atlas-companion-title-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.atlas-companion-strip-title { font-size: 12px; font-weight: 600; white-space: nowrap; color: var(--atlas-text-title); }
+.atlas-companion-presence-badge { font-size: 11px; white-space: nowrap; color: var(--atlas-presence); }
+.atlas-companion-presence-badge.is-empty { color: var(--atlas-text-sub); }
+.atlas-cafe-chat button.atlas-companion-seminar-pill {
+  color: var(--atlas-accent-primary);
+  background: var(--atlas-bg-pill);
+  border-color: var(--atlas-accent-primary);
+}
+.atlas-companion-dock {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 5px 2px;
+  margin: 2px -2px;
+  scrollbar-width: thin;
+  scroll-padding-inline: 2px;
+}
+.atlas-cafe-chat button.atlas-companion-slot { max-width: 128px; padding: 2px 9px 2px 3px; gap: 5px; border-radius: 999px; }
+.atlas-cafe-chat button.atlas-companion-slot[aria-pressed="true"] {
+  background: var(--atlas-bg-pill);
+  border-color: var(--atlas-accent-primary);
+  color: var(--atlas-accent-primary);
+}
+/* Focus rings inside the control so the horizontal scrollers cannot clip them */
+.atlas-cafe-chat :is(button.atlas-companion-slot, button.atlas-chat-mention-chip):focus-visible { outline-offset: -2px; }
+.atlas-companion-slot-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.atlas-companion-empty { padding: 5px 0; font-size: 12px; color: var(--atlas-text-sub); }
+.atlas-companion-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 5px;
+  border-top: 1px solid var(--atlas-border-card);
+  font-size: 12px;
+  color: var(--atlas-text-sub);
+}
+.atlas-companion-note { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.atlas-companion-hint { flex: 0 0 auto; font-size: 11px; }
+@container (max-width: 380px) {
+  .atlas-companion-hint { display: none; }
+}
+
+/* Thread row: the title shrinks, Hub stays */
+.atlas-cafe-chat .atlas-chat-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--atlas-border-card);
+}
+.atlas-cafe-chat select.atlas-chat-thread-select {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 28px;
+  font-size: 12px;
+  border: 1px solid var(--atlas-border-card);
+  border-radius: 6px;
+  background-color: var(--atlas-bg-card);
+  color: var(--atlas-text-body);
+}
+.atlas-chat-thread-name {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--atlas-text-title);
+}
+.atlas-cafe-chat button.atlas-chat-hub-btn { color: var(--atlas-accent-primary); }
+.atlas-cafe-chat button.atlas-chat-config-btn { padding: 3px 7px; color: var(--atlas-text-sub); }
+.atlas-cafe-chat button.atlas-chat-config-btn[aria-expanded="true"] {
+  border-color: var(--atlas-accent-primary);
+  background: var(--atlas-bg-pill);
+  color: var(--atlas-accent-primary);
+}
+
+/* In-panel connection settings (⚙ in the thread row; 填写地址 when offline) */
+.atlas-chat-config {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 8px 12px 0;
+  padding: 10px;
+  border: 1px solid var(--atlas-border-card);
+  border-radius: 8px;
+  background: var(--atlas-bg-card);
+  font-size: 12px;
+  color: var(--atlas-text-body);
+  text-align: left;
+}
+.atlas-chat-config.is-offline { width: 100%; max-width: 380px; margin: 4px 0 0; }
+/* Open in the connected panel, the settings share the column with the conversation: they give up height first and
+   scroll inside, so the draft and 发送 stay on screen even in a short pane. */
+.atlas-cafe-chat > .atlas-chat-config { flex: 0 1 auto; min-height: 72px; overflow-y: auto; }
+/* A send that did not land stays in its conversation, marked, with 重发 / 放回输入框 / 删除 */
+.atlas-cafe-chat .atlas-chat-bubble.is-user.is-failed {
+  background: var(--atlas-bg-card);
+  color: var(--atlas-text-body);
+  border: 1px dashed var(--text-error, #d0574f);
+}
+.atlas-cafe-chat .atlas-chat-bubble.is-failed .atlas-chat-time { color: var(--atlas-text-sub); }
+.atlas-chat-failed-note { display: block; margin-top: 2px; font-size: 11px; color: var(--text-error, #d0574f); overflow-wrap: anywhere; }
+.atlas-chat-config-status { margin: 0; overflow-wrap: anywhere; }
+.atlas-cafe-onboard-error { max-width: 380px; margin: 0; font-size: 12px; overflow-wrap: anywhere; color: var(--text-error, #d0574f); }
+.atlas-chat-config-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.atlas-chat-config-label { font-size: 11px; color: var(--atlas-text-sub); }
+.atlas-cafe-chat input.atlas-chat-config-input {
+  flex: 1 1 140px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 3px 8px;
+  font-size: 12px;
+  border: 1px solid var(--atlas-border-card);
+  border-radius: 6px;
+  background: var(--atlas-bg-card);
+  color: var(--atlas-text-body);
+  box-shadow: none;
+}
+.atlas-cafe-chat input.atlas-chat-config-input:focus { outline: none; border-color: var(--atlas-accent-primary); box-shadow: 0 0 0 2px var(--atlas-bg-pill); }
+.atlas-cafe-chat button.atlas-chat-config-action.is-link {
+  align-self: flex-start;
+  min-height: 24px;
+  padding: 2px 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--atlas-text-sub);
+  text-decoration: underline;
+}
+
+/* Messages take the remaining height */
+.atlas-cafe-chat .atlas-chat-messages {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 12px;
+  /* a column with gaps: user bubbles align right (align-self), cats left */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.atlas-cafe-chat .atlas-chat-bubble { overflow-wrap: anywhere; }
+.atlas-cafe-chat button.atlas-chat-action-pill {
+  min-height: 24px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: normal;
+  border-radius: 999px;
+  border-color: var(--atlas-border-hover);
+  background: var(--atlas-bg-pill);
+  color: var(--atlas-accent-primary);
+}
+.atlas-cafe-chat button.atlas-chat-action-pill:hover:not(:disabled) { background: var(--atlas-accent-primary); color: #FFFDF9; }
+.atlas-cafe-chat button.atlas-chat-expand-btn {
+  min-height: 24px;
+  margin-top: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-style: dashed;
+  background: transparent;
+  color: var(--atlas-text-sub);
+}
+
+/* Input: one-row toolbar (attach · scrollable @ list), then draft + send */
+.atlas-cafe-chat .atlas-chat-input-area {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--atlas-border-card);
+}
+.atlas-chat-input-tools { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: nowrap; margin-bottom: 6px; }
+.atlas-cafe-chat button.atlas-chat-ctx-btn {
+  flex: 0 1 auto;
+  max-width: min(200px, 50%);
+  min-width: 0;
+  font-size: 11px;
+  border-style: dashed;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--atlas-text-sub);
+}
+.atlas-cafe-chat button.atlas-chat-ctx-btn[aria-pressed="true"] {
+  border-style: solid;
+  border-color: var(--atlas-accent-primary);
+  background: var(--atlas-bg-pill);
+  color: var(--atlas-accent-primary);
+}
+.atlas-chat-ctx-label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.atlas-chat-mention-bar {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  gap: 5px;
+  min-width: 0;
+  min-height: 34px;
+  overflow-x: auto;
+  padding: 3px 2px;
+  scrollbar-width: thin;
+  scroll-padding-inline: 2px;
+}
+.atlas-cafe-chat button.atlas-chat-mention-chip {
+  display: block;
+  flex: 0 0 auto;
+  max-width: 10em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  border-radius: 999px;
+}
+.atlas-chat-input-row { display: flex; align-items: flex-end; gap: 6px; min-width: 0; }
+.atlas-cafe-chat textarea.atlas-chat-input {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  min-height: 50px;
+  max-height: 110px;
+  padding: 7px 8px;
+  resize: none;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  border: 1px solid var(--atlas-border-card);
+  border-radius: 8px;
+  background: var(--atlas-bg-card);
+  color: var(--atlas-text-body);
+  box-shadow: none;
+}
+.atlas-cafe-chat textarea.atlas-chat-input:focus { outline: none; border-color: var(--atlas-accent-primary); box-shadow: 0 0 0 2px var(--atlas-bg-pill); }
+.atlas-cafe-chat button.atlas-chat-send-btn {
+  min-height: 32px;
+  padding: 3px 12px;
+  border-color: var(--atlas-accent-primary);
+  background: var(--atlas-bg-pill);
+  color: var(--atlas-accent-primary);
+}
+.atlas-cafe-chat button.atlas-chat-send-btn:hover:not(:disabled) { background: var(--atlas-accent-primary); color: #FFFDF9; }
+
+/* Scrollbar styling inside lens panel */
+.atlas-provenance-lens::-webkit-scrollbar {
+  width: 5px;
+}
+
+.atlas-provenance-lens::-webkit-scrollbar-thumb {
+  background: rgba(200, 125, 85, 0.35);
+  border-radius: 4px;
+}
+
+/* ═══════════════════════════════════════════════
+   Seminar Modal
+   ═══════════════════════════════════════════════ */
+
+.atlas-seminar-modal {
+  max-width: 500px;
+}
+
+.atlas-seminar-modal h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  color: var(--text-normal);
+}
+
+.atlas-seminar-desc {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0 0 16px;
+}
+
+.atlas-seminar-label {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-normal);
+  margin: 14px 0 8px;
+}
+
+.atlas-seminar-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.atlas-seminar-cat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 2px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  position: relative;
+  min-width: 80px;
+}
+
+.atlas-seminar-cat:hover {
+  border-color: var(--atlas-accent-primary);
+  background: var(--background-secondary);
+}
+
+.atlas-seminar-cat.is-selected {
+  border-color: var(--atlas-accent-primary);
+  background: rgba(200,125,85,0.08);
+  box-shadow: 0 2px 10px rgba(200,125,85,0.2);
+}
+
+.atlas-seminar-cat-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.atlas-seminar-check {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--atlas-accent-primary);
+  color: white;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(0.5);
+  transition: all 0.2s ease;
+}
+
+.atlas-seminar-cat.is-selected .atlas-seminar-check {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.atlas-seminar-topic {
+  width: 100%;
+  min-height: 80px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.atlas-seminar-topic:focus {
+  outline: none;
+  border-color: var(--atlas-accent-primary);
+  box-shadow: 0 0 0 2px rgba(200,125,85,0.15);
+}
+
+.atlas-seminar-topic::placeholder {
+  color: var(--text-faint);
+}
+
+.atlas-seminar-attach {
+  margin: 10px 0;
+}
+
+.atlas-seminar-attach-btn {
+  font-size: 12px !important;
+}
+
+.atlas-seminar-attach-btn.is-active {
+  background: rgba(200,125,85,0.1) !important;
+  border-color: var(--atlas-accent-primary) !important;
+  color: var(--atlas-accent-primary) !important;
+}
+
+.atlas-seminar-start-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.atlas-seminar-start {
+  width: 100%;
+  padding: 10px 24px !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 3px 12px rgba(200,125,85,0.35);
+}
+.atlas-seminar-start:hover {
+  box-shadow: 0 5px 16px rgba(200,125,85,0.45) !important;
+}
+
+.atlas-seminar-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   v0.8.0 Coherent Companion Edition — Unified Loop Styles
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 1. Unified Header Active Tab Highlight */
+.atlas-icon-btn.is-active-tab {
+  background: linear-gradient(135deg, rgba(200, 125, 85, 0.22), rgba(212, 163, 89, 0.16)) !important;
+  border-color: var(--atlas-accent-primary) !important;
+  color: var(--atlas-accent-primary) !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 8px rgba(200, 125, 85, 0.18);
+}
+
+/* 2. Message actions (save as pending / excerpt); companion strip and toolbar live in the chat panel v2 section */
+.atlas-chat-msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(200, 125, 85, 0.2);
+  flex-wrap: wrap;
+}
+
+/* 5. Seminar Topic Presets */
+.atlas-seminar-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.atlas-seminar-preset-pill {
+  padding: 4px 10px !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  height: auto !important;
+  line-height: 1.35 !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(200, 125, 85, 0.28) !important;
+  background: rgba(200, 125, 85, 0.06) !important;
+  color: var(--text-normal) !important;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.atlas-seminar-preset-pill:hover {
+  border-color: var(--atlas-accent-primary) !important;
+  background: rgba(200, 125, 85, 0.16) !important;
+  color: var(--atlas-accent-primary) !important;
+}
+
+/* The passage attached to the next message (editor: 和猫猫讨论 / 请猫猫修改选中段落) */
+.atlas-cafe-chat .atlas-chat-passage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 6px;
+  padding: 3px 4px 3px 6px;
+  border: 1px dashed var(--atlas-border-hover);
+  border-radius: 8px;
+  background: var(--atlas-bg-pill);
+  font-size: 12px;
+}
+.atlas-cafe-chat .atlas-chat-passage[hidden] { display: none; }
+.atlas-chat-passage-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--atlas-text-body); }
+.atlas-cafe-chat button.atlas-chat-passage-mode { min-height: 24px; padding: 1px 8px; border-radius: 999px; color: var(--atlas-accent-primary); }
+.atlas-cafe-chat button.atlas-chat-passage-clear { min-height: 24px; padding: 1px 6px; border-color: transparent; background: transparent; color: var(--atlas-text-sub); }
+
+/* Revision check: the passage and a cat's 修改稿, one above the other */
+.atlas-revision-modal .atlas-revision-label { margin: 10px 0 4px; font-size: 12px; color: var(--text-muted); }
+.atlas-revision-modal .atlas-revision-text {
+  max-height: 28vh;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  font-size: 13px;
+}
+.atlas-revision-modal .atlas-revision-text.is-revised { border-color: var(--interactive-accent); }
+.atlas-revision-modal .atlas-revision-problem { color: var(--text-error, #d0574f); }
+.atlas-revision-modal .atlas-revision-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }

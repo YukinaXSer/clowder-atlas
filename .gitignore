@@ -1,0 +1,8 @@
+/main.js
+/styles.css
+/dist/
+/artifacts/
+/node_modules/
+.DS_Store
+data.json
+.obsidian/

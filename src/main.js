@@ -3657,10 +3657,16 @@ class SeminarModal extends obsidian.Modal {
 
   /** Send the seminar message to its conversation (opening a new one first, if so chosen), then show it in the panel. */
   async _open(topic) {
+    if (!this.plugin.isCafeConnected) throw new Error('猫咖没有连上，请先在对话面板连接猫咖');
+    // Each step goes on only while the connection is still the one this start began on (as in _initCafeConnection):
+    // an answer that arrives after the address changed, or the cafe was disconnected, sends nothing more.
+    const client = this.plugin.cafeClient;
+    const current = () => this.plugin.cafeClient === client;
+    const changed = '猫咖连接在开会途中变了，这次没有发出；再点开会，会发到现在连接的猫咖';
+
     // Sync selected cats into global companion roster!
     this.plugin.setSummonedCats([...this._selected]);
 
-    const client = this.plugin.cafeClient;
     const selectedCats = [...this._selected].map(id => client.findCat(id) || { id });
     const catNames = selectedCats.map(cat => {
       const p = SpecParser.resolveCatProfile(cat);
@@ -3703,7 +3709,9 @@ class SeminarModal extends obsidian.Modal {
     if (opensNew && this._opening?.cafe !== client.baseUrl) this._opening = { cafe: client.baseUrl, key: crypto.randomUUID(), thread: null };
     if (opensNew && !this._opening.thread) {
       const temporaryTitle = seminarThreadTitle({ passage, noteName: this._attachNote && this._targetFile && !passage ? this._targetFile.basename : '', topic });
+      if (!current()) throw new Error(changed);
       const thread = await client.createThread({ temporaryTitle, projectPath: this.app.vault.adapter.basePath || '', idempotencyKey: this._opening.key });
+      // Kept with the cafe that opened it, even if the connection changed meanwhile (then it is that cafe's to reuse)
       this._opening.thread = { ...thread, title: thread.title || temporaryTitle };  // the cafe may answer before it applies the title
       this._syncWhere();
     }
@@ -3714,6 +3722,7 @@ class SeminarModal extends obsidian.Modal {
       await this.plugin.setRevisionTarget({ id: revisionId, cafe: client.baseUrl, threadId, path: passage.path, original: passage.text, from: passage.from, to: passage.to, at: Date.now(), messageIds: [] });
     }
 
+    if (!current()) throw new Error(changed);
     const resp = await client._fetch('/api/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3721,14 +3730,18 @@ class SeminarModal extends obsidian.Modal {
     });
     if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
 
-    new obsidian.Notice(opensNew
-      ? `🎓 研讨会已在新对话「${this._opening.thread.title}」开启！${catNames.join('、')} 正在右侧对话栏准备发言...`
-      : `🎓 研讨会已开启！${catNames.join('、')} 正在右侧对话栏准备发言...`);
+    const moved = !current();  // sent, to the cafe it began on, while the panel has come to show another connection
+    new obsidian.Notice(moved
+      ? `🎓 研讨会已发到原来连接的猫咖（${client.baseUrl}）；猫咖连接已经换了，对话栏不会切过去`
+      : opensNew
+        ? `🎓 研讨会已在新对话「${this._opening.thread.title}」开启！${catNames.join('、')} 正在右侧对话栏准备发言...`
+        : `🎓 研讨会已开启！${catNames.join('、')} 正在右侧对话栏准备发言...`);
     this.close();
     if (passage && this.plugin.chatPassage === this._passage) {  // the passage went with the seminar
       this.plugin.chatPassage = null;
       this.plugin._renderChatPassage();
     }
+    if (moved) return;
     if (opensNew) await this.plugin.refreshCafe();  // the new conversation joins the panel's list before the panel turns to it
     await this.plugin.openCafeChat({ threadId });
   }

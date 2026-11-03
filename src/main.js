@@ -3412,8 +3412,11 @@ class SeminarModal extends obsidian.Modal {
     this._defaultTopic = opts.defaultTopic || '';
     this._passage = opts.passage || null;  // the chat panel's 选段, attached instead of the whole note
     this._attachPassage = Boolean(this._passage);
+    // The dialog belongs to the connection it was opened on: it lists that cafe's conversations and starts seminars
+    // there only; once the plugin is connected otherwise it is void (see _start, _open). So a dialog opens at most one.
+    this._client = this.plugin.cafeClient;
     this._where = 'new';     // 'new': a conversation of its own; 'existing': the one picked in 3. 在哪开会
-    this._opening = null;    // { cafe, key, thread }: the conversation this seminar opens on one cafe (see _open)
+    this._opening = null;    // { key, thread }: the conversation this dialog opens; every attempt reuses both (see _open)
     this._busy = false;
   }
 
@@ -3523,8 +3526,7 @@ class SeminarModal extends obsidian.Modal {
       });
     }
 
-    this._whereBox = contentEl.createDiv('atlas-seminar-where-box');
-    this._renderWhere();
+    this._renderWhere(contentEl);
 
     // Start button + hint
     const startRow = contentEl.createDiv('atlas-seminar-start-row');
@@ -3539,17 +3541,11 @@ class SeminarModal extends obsidian.Modal {
   }
 
   /**
-   * 3. 在哪开会: a conversation of its own (the default), or one the vault already has — the one the chat panel shows,
-   * unless another is picked. While the vault has no conversation in the cafe, only a new one can be chosen. The list is
-   * the connected cafe's; _open lists them again if the address has changed since.
+   * 3. 在哪开会: a conversation of its own (the default), or one the vault already has in the dialog's cafe — the one the
+   * chat panel shows, unless another is picked. While the vault has no conversation there, only a new one can be chosen.
    */
-  _renderWhere() {
-    const client = this.plugin.cafeClient;
-    const threads = client?.threads || [];
-    const box = this._whereBox;
-    box.empty();
-    this._whereCafe = client?.baseUrl ?? null;
-    if (!threads.length) this._where = 'new';
+  _renderWhere(box) {
+    const threads = this._client?.threads || [];
     box.createEl('label', { text: '3. 在哪开会', cls: 'atlas-seminar-label' });
     const row = box.createDiv({ cls: 'atlas-seminar-where', attr: { role: 'group', 'aria-label': '在哪开会' } });
     this._whereBtns = [['new', '🆕 新开对话'], ['existing', '💬 用现有对话']].map(([where, text]) => {
@@ -3576,7 +3572,7 @@ class SeminarModal extends obsidian.Modal {
       b.setAttribute('aria-pressed', String(on));
     }
     this._threadSelect.style.display = this._where === 'existing' ? '' : 'none';
-    const opened = this._opening?.cafe === this.plugin.cafeClient?.baseUrl ? this._opening.thread : null;
+    const opened = this._opening?.thread;
     this._whereHint.textContent = this._where === 'existing'
       ? '发到选中的对话里，默认是右侧对话栏正在看的那个。'
       : opened
@@ -3627,6 +3623,7 @@ class SeminarModal extends obsidian.Modal {
 
   async _start() {
     if (this._busy) return;  // a second click while one start is under way does nothing
+    if (this.plugin.cafeClient !== this._client) return this._void();  // connected otherwise since the dialog opened
     const topic = this._topicInput?.value?.trim();
     if (!topic) {
       new obsidian.Notice('💡 请输入讨论议题');
@@ -3646,6 +3643,12 @@ class SeminarModal extends obsidian.Modal {
     }
   }
 
+  /** The plugin is no longer on this dialog's connection: it starts nothing more; opened again, it starts afresh there. */
+  _void() {
+    new obsidian.Notice('⚠️ 猫咖连接已经变了，这次研讨会没有发出；请重新打开研讨会，在现在连接的猫咖里开');
+    this.close();
+  }
+
   /** While a start is under way, the button says so and takes no clicks. */
   _setBusy(on) {
     this._busy = on;
@@ -3657,12 +3660,11 @@ class SeminarModal extends obsidian.Modal {
 
   /** Send the seminar message to its conversation (opening a new one first, if so chosen), then show it in the panel. */
   async _open(topic) {
-    if (!this.plugin.isCafeConnected) throw new Error('猫咖没有连上，请先在对话面板连接猫咖');
-    // Each step goes on only while the connection is still the one this start began on (as in _initCafeConnection):
-    // an answer that arrives after the address changed, or the cafe was disconnected, sends nothing more.
-    const client = this.plugin.cafeClient;
+    // After every wait that a request, a write or a change of the panel follows, it goes on only while the plugin is
+    // still on this dialog's connection (as _initCafeConnection does): what comes back after the address changed, or the
+    // cafe was disconnected, sends, keeps or shows nothing more for the connection made since.
+    const client = this._client;
     const current = () => this.plugin.cafeClient === client;
-    const changed = '猫咖连接在开会途中变了，这次没有发出；再点开会，会发到现在连接的猫咖';
 
     // Sync selected cats into global companion roster!
     this.plugin.setSummonedCats([...this._selected]);
@@ -3697,22 +3699,17 @@ class SeminarModal extends obsidian.Modal {
     content += `请参会猫猫从各自专长出发，就以上议题给出精炼、可直接整理进笔记的观点与建议。\n\n`;
     content += mentions.join('\n');
 
-    // Its conversation: the one picked in 3. 在哪开会, or one opened for it. A seminar opens one conversation per cafe:
-    // a retry after a failed send goes to it again, and its key makes the cafe answer with that same conversation if
-    // the first answer was lost. Conversations belong to the cafe they were listed or opened on: after the address has
-    // changed, the existing ones are listed again for the cafe now connected, and a new one is opened there.
+    // Its conversation: the one picked in 3. 在哪开会 (from this dialog's cafe), or the one this dialog opens. That is
+    // opened at most once: its key is made once and sent with every attempt, so a retry after a failed send, or a
+    // request resent because its answer was lost, gets the same conversation back from the cafe.
+    if (!current()) return this._void();  // (the note was being read)
     const opensNew = this._where !== 'existing';
-    if (!opensNew && this._whereCafe !== client.baseUrl) {
-      this._renderWhere();
-      throw new Error('猫咖地址换了，已按现在连接的猫咖重新列出对话，请再选一次在哪开会');
-    }
-    if (opensNew && this._opening?.cafe !== client.baseUrl) this._opening = { cafe: client.baseUrl, key: crypto.randomUUID(), thread: null };
+    if (opensNew && !this._opening) this._opening = { key: crypto.randomUUID(), thread: null };
     if (opensNew && !this._opening.thread) {
       const temporaryTitle = seminarThreadTitle({ passage, noteName: this._attachNote && this._targetFile && !passage ? this._targetFile.basename : '', topic });
-      if (!current()) throw new Error(changed);
       const thread = await client.createThread({ temporaryTitle, projectPath: this.app.vault.adapter.basePath || '', idempotencyKey: this._opening.key });
-      // Kept with the cafe that opened it, even if the connection changed meanwhile (then it is that cafe's to reuse)
       this._opening.thread = { ...thread, title: thread.title || temporaryTitle };  // the cafe may answer before it applies the title
+      if (!current()) return this._void();  // the conversation stays in the cafe that opened it; nothing is sent
       this._syncWhere();
     }
     const threadId = opensNew ? this._opening.thread.id : this._threadSelect.value;
@@ -3720,17 +3717,18 @@ class SeminarModal extends obsidian.Modal {
     const revisionId = passage ? `rq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : null;
     if (revisionId) {  // a 修改稿 answering this seminar message, from any of its cats, can then replace this passage
       await this.plugin.setRevisionTarget({ id: revisionId, cafe: client.baseUrl, threadId, path: passage.path, original: passage.text, from: passage.from, to: passage.to, at: Date.now(), messageIds: [] });
+      if (!current()) return this._void();
     }
 
-    if (!current()) throw new Error(changed);
     const resp = await client._fetch('/api/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    // Sent, to this dialog's cafe: the revision request is bound to that message there, whatever the connection now
     if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
 
-    const moved = !current();  // sent, to the cafe it began on, while the panel has come to show another connection
+    const moved = !current();  // sent, to this dialog's cafe, while the plugin has come to another connection
     new obsidian.Notice(moved
       ? `🎓 研讨会已发到原来连接的猫咖（${client.baseUrl}）；猫咖连接已经换了，对话栏不会切过去`
       : opensNew
@@ -3742,7 +3740,13 @@ class SeminarModal extends obsidian.Modal {
       this.plugin._renderChatPassage();
     }
     if (moved) return;
-    if (opensNew) await this.plugin.refreshCafe();  // the new conversation joins the panel's list before the panel turns to it
+    if (opensNew) {
+      await this.plugin.refreshCafe();  // the new conversation joins the panel's list before the panel turns to it
+      if (!current()) {  // the list came back after the connection changed: the panel shows another cafe now
+        new obsidian.Notice('💬 猫咖连接已经换了，对话栏没有切到这场研讨会的对话');
+        return;
+      }
+    }
     await this.plugin.openCafeChat({ threadId });
   }
 

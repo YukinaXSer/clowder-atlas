@@ -5,7 +5,7 @@
 - An existing conversation defaults to the one the chat panel shows; any other conversation of the vault can be picked.
 - If sending fails, the dialog stays open, and starting again reuses the conversation already created for it instead of opening another. Repeated clicks are ignored while a start is under way.
 - Creating the conversation carries an idempotency key, as in the Cat Cafe's own new-conversation form: if the cafe's answer is lost and the request is sent again (Obsidian resends an interrupted request), the same conversation comes back instead of a second one.
-- If the Cat Cafe address changes while the dialog is open, a new conversation is opened on the cafe now connected, and existing conversations are listed again for that cafe before anything is sent; nothing goes to a conversation of the previous cafe. A start interrupted by such a change, or by disconnecting, sends nothing more; a seminar already sent stays with the cafe it went to.
+- The dialog belongs to the Cat Cafe connection it was opened on. If the address changes or the cafe is disconnected while it is open, or while a seminar is being started, it sends nothing more, closes, and asks to be opened again; a seminar already sent stays with the cafe it went to, and the chat panel is not turned to it.
 - When the chat panel is switched to another conversation (by a seminar or another entry point), the previous conversation's messages leave the screen before the new ones load.
 
 Privacy: a seminar in a new conversation sends the vault path (as the conversation's project) and the temporary title to the configured Cat Cafe. See PRIVACY.md.

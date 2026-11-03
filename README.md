@@ -11,7 +11,7 @@ Clowder Atlas works without an AI service for local exploration and curation. Ch
 - **Memory star chart:** explore all Markdown notes and their local link relationships, with memory type filters and brightness based on incoming links.
 - **Provenance Lens:** inspect note metadata, sources, related notes, memory type, and draft/pending/crystallized status.
 - **Local curation:** add memory metadata, create templates, review pending insights, and export Atlas notes to a new Obsidian Canvas.
-- **Optional companions:** read and discuss notes in a chat sidebar, organize a multi-cat seminar, and save useful replies as pending notes or append them to a note.
+- **Optional companions:** read and discuss notes in a chat sidebar, organize a multi-cat seminar in a new conversation (named for it) or an existing one, and save useful replies as pending notes or append them to a note.
 - **Selected passages:** select text in the editor and choose **🐾 把选中段落交给猫猫**, or run **Clowder Atlas: Ask Cats About Selection**. Tell the cats whether you want discussion or a rewrite. A reply containing a revision can be compared with the original and applied after confirmation.
 
 ![Provenance Lens showing a synthetic pending insight and its related notes.](images/provenance-lens.png)
@@ -49,7 +49,7 @@ The plugin has no client-side telemetry and does not download code or runtime de
 
 When you enable the optional connection, it reads the configured Cat Cafe API for health, cats, threads, and messages, and loads avatar images from that instance's frontend. **One-click connect** probes the configured address and local ports 3004, 3000, 3001, 3005, 4000, and 8080. It does not scan other machines.
 
-Sending chat or a seminar sends your message and any attached material to that instance, which may forward it to its configured AI providers. Ordinary note attachment includes up to 1,000 characters in chat or 1,500 in a seminar; passage attachment includes the selected text, up to 90,000 characters. AI data retention and billing are controlled by that service and its providers.
+Sending chat or a seminar sends your message and any attached material to that instance, which may forward it to its configured AI providers. Ordinary note attachment includes up to 1,000 characters in chat or 1,500 in a seminar; passage attachment includes the selected text, up to 90,000 characters. A seminar in a new conversation first creates that conversation in the instance, under the vault's path, with a temporary title from the attached note, passage lines, or topic. AI data retention and billing are controlled by that service and its providers.
 
 Failed messages, attachment text, revision targets, and connection preferences are stored unencrypted in the plugin's local `data.json`. Unresolved failed messages have no automatic count or time expiry. That file may also be included in your own vault backups or sync configuration. See [PRIVACY.md](PRIVACY.md) for details.
 

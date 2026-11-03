@@ -7,7 +7,7 @@ const pluginDir = process.argv[2] || path.resolve(here, '..');
 const src = fs.readFileSync(path.join(pluginDir, 'main.js'), 'utf8');
 const host = { Plugin: class {}, ItemView: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {}, requestUrl: async () => ({}) };
 const box = { module: { exports: {} }, require: (n) => { if (n === 'obsidian') return host; throw Error(n); }, console, URL, Set, Map, setTimeout, clearTimeout, setInterval() {}, clearInterval() {} };
-vm.runInNewContext(src + '\nmodule.exports.t={passageLines,passageFence,extractRevision,offsetOfPos,posOfOffset,locatePassage,passageMessage,passageShown};', box);
+vm.runInNewContext(src + '\nmodule.exports.t={passageLines,passageFence,extractRevision,offsetOfPos,posOfOffset,locatePassage,passageMessage,passageShown,seminarThreadTitle};', box);
 const t = box.module.exports.t; let fail = 0;
 const ok = (name, cond, extra='') => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${extra ? '  — ' + extra : ''}`); if (!cond) fail++; };
 ok('lines: single', t.passageLines({ from: { line: 2, ch: 0 }, to: { line: 2, ch: 5 } }) === '第 3 行');
@@ -34,5 +34,15 @@ ok('message: no words → asks what the cats make of it, with a 修改稿 block 
 const asked = t.passageMessage({ ...p, text: '一段' }, '帮我改得更简洁');
 ok('message: the user\'s words decide (discuss or revise), with where a revision goes', asked.includes('帮我改得更简洁') && asked.includes('修改稿') && asked.includes('只是讨论的话'));
 ok('shown', t.passageShown(p, '问') === '📌 选段 · 《笔记》第 1 行\n问');
+// 0.0.3 a seminar's new conversation: its temporary title says what the seminar is about
+const st = t.seminarThreadTitle;
+ok('seminar title: passage, with its lines', st({ passage: { basename: '笔记', from: { line: 2, ch: 0 }, to: { line: 4, ch: 3 } }, noteName: '别的', topic: '议题' }) === '🎓 研讨会 · 《笔记》第 3–5 行');
+ok('seminar title: the note sent with it', st({ noteName: '记忆框架', topic: '议题' }) === '🎓 研讨会 · 《记忆框架》');
+const fromTopic = st({ topic: '  请从各自专长\n审阅这份方案的盲区与风险，并给出具体改进建议，越具体越好  ' });
+ok('seminar title: else the start of the topic, on one line, clipped', fromTopic.startsWith('🎓 研讨会 · 请从各自专长 审阅') && fromTopic.endsWith('…') && Array.from(fromTopic.slice('🎓 研讨会 · '.length)).length === 30, fromTopic);
+ok('seminar title: nothing to go on', st({}) === '🎓 研讨会' && st({ topic: '   ' }) === '🎓 研讨会');
+const longName = '🐱'.repeat(60);
+const clipped = st({ noteName: longName });
+ok('seminar title: a long name is clipped whole characters (no broken emoji), within the cafe\'s 200', clipped === `🎓 研讨会 · 《${'🐱'.repeat(39)}…》` && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(clipped) && clipped.length <= 200, clipped);
 console.log(fail ? `FAILED ${fail}` : 'ALL PASS');
 process.exitCode = fail ? 1 : 0;

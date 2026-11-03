@@ -1,6 +1,6 @@
 {
   "name": "clowder-atlas",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "description": "A local memory atlas with optional Clowder AI companions.",
   "license": "MIT",

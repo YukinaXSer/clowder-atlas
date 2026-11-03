@@ -138,6 +138,18 @@ function passageShown(p, request) {
   return request ? `${head}\n${request}` : head;
 }
 
+/**
+ * The name a seminar's own new conversation starts with: what the seminar is about (the passage or the note sent with
+ * it, else the start of its topic). It is the cafe's temporary title, so the first cat to answer names the conversation.
+ */
+function seminarThreadTitle({ passage = null, noteName = '', topic = '' } = {}) {
+  const clip = (s, n) => { const chars = Array.from(s); return chars.length > n ? `${chars.slice(0, n - 1).join('')}…` : s; };
+  const about = passage ? `《${clip(passage.basename, 40)}》${passageLines(passage)}`
+    : noteName ? `《${clip(noteName, 40)}》`
+    : clip(String(topic).replace(/\s+/g, ' ').trim(), 30);
+  return about ? `🎓 研讨会 · ${about}` : '🎓 研讨会';
+}
+
 // ═══════════════════════════════════════════════
 // Cat Cafe Client — connects to local Cat Cafe Hub API
 // ═══════════════════════════════════════════════
@@ -248,6 +260,18 @@ class CatCafeClient {
       console.warn('Clowder Atlas: Failed to fetch thread detail:', err.message);
       return null;
     }
+  }
+
+  /**
+   * Open a new conversation in the cafe, under this vault's path so it is listed with the vault's other threads. The
+   * title is temporary (see seminarThreadTitle). The cafe accepts only the fields it knows, so nothing else is sent.
+   */
+  async createThread({ temporaryTitle, projectPath }) {
+    const body = { temporaryTitle };
+    if (projectPath) body.projectPath = projectPath;
+    const thread = await this._fetch('/api/threads', { method: 'POST', body: JSON.stringify(body) });
+    if (!thread?.id) throw new Error('猫咖没有返回新对话');
+    return thread;
   }
 
   /**
@@ -2496,8 +2520,12 @@ class CafeChatView extends obsidian.ItemView {
       return;
     }
     if (options.threadId && options.threadId !== this._threadId) {
+      // As when it is picked in the header: the other conversation's messages leave the screen before this one's load
       this._threadId = options.threadId;
       if (this._threadSelect) this._threadSelect.value = options.threadId;
+      this._messages = [];
+      this._lastMessageId = null;
+      this._renderMessages();
     }
     if (options.attachFile) {
       this._attachNote = true;
@@ -3382,6 +3410,9 @@ class SeminarModal extends obsidian.Modal {
     this._defaultTopic = opts.defaultTopic || '';
     this._passage = opts.passage || null;  // the chat panel's 选段, attached instead of the whole note
     this._attachPassage = Boolean(this._passage);
+    this._where = 'new';     // 'new': a conversation of its own; 'existing': the one picked in 3. 在哪开会
+    this._newThread = null;  // the conversation opened for this seminar; a retry after a failed send goes there again
+    this._busy = false;
   }
 
   onOpen() {
@@ -3490,9 +3521,11 @@ class SeminarModal extends obsidian.Modal {
       });
     }
 
+    this._renderWhere(contentEl);
+
     // Start button + hint
     const startRow = contentEl.createDiv('atlas-seminar-start-row');
-    const startBtn = startRow.createEl('button', {
+    const startBtn = this._startBtn = startRow.createEl('button', {
       text: '🐾 立即开会 · 打开右侧研讨流',
       cls: 'atlas-btn atlas-btn-primary atlas-seminar-start',
     });
@@ -3500,6 +3533,45 @@ class SeminarModal extends obsidian.Modal {
 
     this._hintEl = startRow.createDiv('atlas-seminar-hint');
     this._updateHint();
+  }
+
+  /**
+   * 3. 在哪开会: a conversation of its own (the default), or one the vault already has — the one the chat panel shows,
+   * unless another is picked. While the vault has no conversation in the cafe, only a new one can be chosen.
+   */
+  _renderWhere(contentEl) {
+    const threads = this.plugin.cafeClient?.threads || [];
+    contentEl.createEl('label', { text: '3. 在哪开会', cls: 'atlas-seminar-label' });
+    const row = contentEl.createDiv({ cls: 'atlas-seminar-where', attr: { role: 'group', 'aria-label': '在哪开会' } });
+    this._whereBtns = [['new', '🆕 新开对话'], ['existing', '💬 用现有对话']].map(([where, text]) => {
+      const b = row.createEl('button', { text, cls: 'atlas-btn atlas-seminar-where-btn', attr: { 'data-where': where } });
+      b.addEventListener('click', () => { this._where = where; this._syncWhere(); });
+      return b;
+    });
+    if (!threads.length) {
+      this._whereBtns[1].disabled = true;
+      this._whereBtns[1].title = '这个库在猫咖里还没有对话';
+    }
+    this._threadSelect = contentEl.createEl('select', { cls: 'dropdown atlas-seminar-thread-select', attr: { 'aria-label': '选择现有对话' } });
+    for (const t of threads) this._threadSelect.createEl('option', { text: t.title || t.id, attr: { value: t.id } });
+    const shown = this.plugin.currentChatThreadId();
+    this._threadSelect.value = threads.some((t) => t.id === shown) ? shown : (threads[0]?.id ?? '');
+    this._whereHint = contentEl.createDiv('atlas-seminar-where-hint');
+    this._syncWhere();
+  }
+
+  _syncWhere() {
+    for (const b of this._whereBtns) {
+      const on = b.dataset.where === this._where;
+      b.toggleClass('is-active', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
+    this._threadSelect.style.display = this._where === 'existing' ? '' : 'none';
+    this._whereHint.textContent = this._where === 'existing'
+      ? '发到选中的对话里，默认是右侧对话栏正在看的那个。'
+      : this._newThread
+        ? `新对话「${this._newThread.title || '🎓 研讨会'}」已经建好，再点开会会发到这里。`
+        : '新建一个对话来开会，先叫「🎓 研讨会 · …」；第一只发言的猫猫会按讨论内容给它起名。';
   }
 
   _renderCatOption(grid, cat, client) {
@@ -3544,6 +3616,7 @@ class SeminarModal extends obsidian.Modal {
   }
 
   async _start() {
+    if (this._busy) return;  // a second click while one start is under way does nothing
     const topic = this._topicInput?.value?.trim();
     if (!topic) {
       new obsidian.Notice('💡 请输入讨论议题');
@@ -3553,7 +3626,27 @@ class SeminarModal extends obsidian.Modal {
       new obsidian.Notice('💡 请至少选择一只猫猫');
       return;
     }
+    this._setBusy(true);
+    try {
+      await this._open(topic);
+    } catch (err) {  // the modal stays open, so the seminar can be started again from here
+      new obsidian.Notice('⚠️ 研讨会发起失败: ' + (err.message || '未知错误'));
+    } finally {
+      this._setBusy(false);
+    }
+  }
 
+  /** While a start is under way, the button says so and takes no clicks. */
+  _setBusy(on) {
+    this._busy = on;
+    if (!this._startBtn) return;
+    this._startLabel ??= this._startBtn.textContent;
+    this._startBtn.disabled = on;
+    this._startBtn.textContent = on ? '⏳ 正在开会…' : this._startLabel;
+  }
+
+  /** Send the seminar message to its conversation (opening a new one first, if so chosen), then show it in the panel. */
+  async _open(topic) {
     // Sync selected cats into global companion roster!
     this.plugin.setSummonedCats([...this._selected]);
 
@@ -3588,32 +3681,39 @@ class SeminarModal extends obsidian.Modal {
     content += `请参会猫猫从各自专长出发，就以上议题给出精炼、可直接整理进笔记的观点与建议。\n\n`;
     content += mentions.join('\n');
 
-    const threadId = client.threads[0]?.id;
-    const body = { content };
-    if (threadId) body.threadId = threadId;
+    // Its conversation: the one picked in 3. 在哪开会, or a new one opened for it — once: a retry after a failed send
+    // goes to that same new conversation instead of opening another.
+    const opensNew = this._where !== 'existing';
+    if (opensNew && !this._newThread) {
+      const temporaryTitle = seminarThreadTitle({ passage, noteName: this._attachNote && this._targetFile && !passage ? this._targetFile.basename : '', topic });
+      const thread = await client.createThread({ temporaryTitle, projectPath: this.app.vault.adapter.basePath || '' });
+      this._newThread = { ...thread, title: thread.title || temporaryTitle };  // the cafe may answer before it applies the title
+      this._syncWhere();
+    }
+    const threadId = opensNew ? this._newThread.id : this._threadSelect.value;
+    const body = { content, threadId };
     const revisionId = passage ? `rq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : null;
     if (revisionId) {  // a 修改稿 answering this seminar message, from any of its cats, can then replace this passage
-      await this.plugin.setRevisionTarget({ id: revisionId, cafe: client.baseUrl, threadId: threadId ?? null, path: passage.path, original: passage.text, from: passage.from, to: passage.to, at: Date.now(), messageIds: [] });
+      await this.plugin.setRevisionTarget({ id: revisionId, cafe: client.baseUrl, threadId, path: passage.path, original: passage.text, from: passage.from, to: passage.to, at: Date.now(), messageIds: [] });
     }
 
-    try {
-      const resp = await client._fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
+    const resp = await client._fetch('/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
 
-      new obsidian.Notice(`🎓 研讨会已开启！${catNames.join('、')} 正在右侧对话栏准备发言...`);
-      this.close();
-      if (passage && this.plugin.chatPassage === this._passage) {  // the passage went with the seminar
-        this.plugin.chatPassage = null;
-        this.plugin._renderChatPassage();
-      }
-      await this.plugin.openCafeChat({ threadId });
-    } catch (err) {
-      new obsidian.Notice('⚠️ 研讨会发起失败: ' + (err.message || '未知错误'));
+    new obsidian.Notice(opensNew
+      ? `🎓 研讨会已在新对话「${this._newThread.title}」开启！${catNames.join('、')} 正在右侧对话栏准备发言...`
+      : `🎓 研讨会已开启！${catNames.join('、')} 正在右侧对话栏准备发言...`);
+    this.close();
+    if (passage && this.plugin.chatPassage === this._passage) {  // the passage went with the seminar
+      this.plugin.chatPassage = null;
+      this.plugin._renderChatPassage();
     }
+    if (opensNew) await this.plugin.refreshCafe();  // the new conversation joins the panel's list before the panel turns to it
+    await this.plugin.openCafeChat({ threadId });
   }
 
   onClose() {
@@ -4271,6 +4371,11 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
       await leaf.setViewState({ type: VIEW_TYPE_STAR_CHART, active: true });
       this.app.workspace.revealLeaf(leaf);
     }
+  }
+
+  /** The conversation the chat panel shows (null while it is closed or has none): the seminar's default existing one. */
+  currentChatThreadId() {
+    return this.app.workspace.getLeavesOfType(VIEW_TYPE_CAFE_CHAT)[0]?.view?._threadId ?? null;
   }
 
   async openCafeChat(options = {}) {

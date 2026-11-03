@@ -6,7 +6,7 @@
 
 ## 安装与开始使用
 
-Clowder Atlas 已有[社区目录公开页面](https://community.obsidian.md/plugins/clowder-atlas)。应用内浏览器使用另一份定期同步的插件清单；在镜像清单包含 `clowder-atlas` 之前，应用内搜索和页面的 **Add to Obsidian** 链接可能仍找不到插件，可先按下面的方法手动安装。目录同步完成后，即可从应用内第三方插件浏览器安装并启用。
+Clowder Atlas 已可从[社区插件目录](https://community.obsidian.md/plugins/clowder-atlas)安装，也可在「设置 → 第三方插件 → 浏览」搜索 **Clowder Atlas**，点击「安装」后「启用」。2026-11-03 已在全新隔离的桌面 Obsidian 1.14.5 库中验证目录搜索、安装 0.0.2 和启用的完整路径。
 
 手动安装时，将同一次 Release 的 `main.js`、`manifest.json`、`styles.css` 放入 `<vault>/.obsidian/plugins/clowder-atlas/`，在「设置 → 第三方插件」启用。更新文件后重新加载插件。
 

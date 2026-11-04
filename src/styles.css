@@ -1817,7 +1817,7 @@ body.theme-dark {
 
 /* Host button/select/textarea styles stop at these controls (beats the host's button:not(.clickable-icon)) */
 .atlas-cafe-chat :is(button.atlas-icon-btn, button.atlas-companion-seminar-pill, button.atlas-companion-slot,
-  button.atlas-chat-hub-btn, button.atlas-chat-ctx-btn, button.atlas-chat-mention-chip, button.atlas-chat-send-btn,
+  button.atlas-chat-hub-btn, button.atlas-chat-new-btn, button.atlas-chat-ctx-btn, button.atlas-chat-mention-chip, button.atlas-chat-send-btn,
   button.atlas-chat-expand-btn, button.atlas-chat-action-pill, button.atlas-chat-config-btn, button.atlas-chat-config-action,
   button.atlas-chat-passage-mode, button.atlas-chat-passage-clear) {
   box-sizing: border-box;
@@ -1847,7 +1847,7 @@ body.theme-dark {
   cursor: pointer;
 }
 .atlas-cafe-chat :is(button.atlas-icon-btn, button.atlas-companion-seminar-pill, button.atlas-companion-slot,
-  button.atlas-chat-hub-btn, button.atlas-chat-ctx-btn, button.atlas-chat-mention-chip, button.atlas-chat-send-btn,
+  button.atlas-chat-hub-btn, button.atlas-chat-new-btn, button.atlas-chat-ctx-btn, button.atlas-chat-mention-chip, button.atlas-chat-send-btn,
   button.atlas-chat-expand-btn, button.atlas-chat-action-pill, button.atlas-chat-config-btn, button.atlas-chat-config-action,
   button.atlas-chat-passage-mode, button.atlas-chat-passage-clear):hover:not(:disabled) {
   background: var(--atlas-bg-card-hover);
@@ -1952,6 +1952,7 @@ body.theme-dark {
   color: var(--atlas-text-title);
 }
 .atlas-cafe-chat button.atlas-chat-hub-btn { color: var(--atlas-accent-primary); }
+.atlas-cafe-chat button.atlas-chat-new-btn { padding: 3px 8px; font-size: 14px; font-weight: 600; color: var(--atlas-accent-primary); }
 .atlas-cafe-chat button.atlas-chat-config-btn { padding: 3px 7px; color: var(--atlas-text-sub); }
 .atlas-cafe-chat button.atlas-chat-config-btn[aria-expanded="true"] {
   border-color: var(--atlas-accent-primary);

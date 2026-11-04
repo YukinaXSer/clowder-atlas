@@ -11,7 +11,7 @@ Clowder Atlas works without an AI service for local exploration and curation. Ch
 - **Memory star chart:** explore all Markdown notes and their local link relationships, with memory type filters and brightness based on incoming links.
 - **Provenance Lens:** inspect note metadata, sources, related notes, memory type, and draft/pending/crystallized status.
 - **Local curation:** add memory metadata, create templates, review pending insights, and export Atlas notes to a new Obsidian Canvas.
-- **Optional companions:** read and discuss notes in a chat sidebar, organize a multi-cat seminar in a new conversation (named for it) or an existing one, and save useful replies as pending notes or append them to a note.
+- **Optional companions:** read and discuss notes in a chat sidebar (**＋** opens a new conversation), organize a multi-cat seminar in a new conversation (named for it) or an existing one, and save useful replies as pending notes or append them to a note.
 - **Selected passages:** select text in the editor and choose **🐾 把选中段落交给猫猫**, or run **Clowder Atlas: Ask Cats About Selection**. Tell the cats whether you want discussion or a rewrite. A reply containing a revision can be compared with the original and applied after confirmation.
 
 ![Provenance Lens showing a synthetic pending insight and its related notes.](images/provenance-lens.png)

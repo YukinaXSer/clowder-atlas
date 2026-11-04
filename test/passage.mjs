@@ -7,7 +7,7 @@ const pluginDir = process.argv[2] || path.resolve(here, '..');
 const src = fs.readFileSync(path.join(pluginDir, 'main.js'), 'utf8');
 const host = { Plugin: class {}, ItemView: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {}, requestUrl: async () => ({}) };
 const box = { module: { exports: {} }, require: (n) => { if (n === 'obsidian') return host; throw Error(n); }, console, URL, Set, Map, setTimeout, clearTimeout, setInterval() {}, clearInterval() {} };
-vm.runInNewContext(src + '\nmodule.exports.t={passageLines,passageFence,extractRevision,offsetOfPos,posOfOffset,locatePassage,passageMessage,passageShown,seminarThreadTitle};', box);
+vm.runInNewContext(src + '\nmodule.exports.t={passageLines,passageFence,extractRevision,offsetOfPos,posOfOffset,locatePassage,passageMessage,passageShown,seminarThreadTitle,threadTitle};', box);
 const t = box.module.exports.t; let fail = 0;
 const ok = (name, cond, extra='') => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${extra ? '  — ' + extra : ''}`); if (!cond) fail++; };
 ok('lines: single', t.passageLines({ from: { line: 2, ch: 0 }, to: { line: 2, ch: 5 } }) === '第 3 行');
@@ -44,5 +44,8 @@ ok('seminar title: nothing to go on', st({}) === '🎓 研讨会' && st({ topic:
 const longName = '🐱'.repeat(60);
 const clipped = st({ noteName: longName });
 ok('seminar title: a long name is clipped whole characters (no broken emoji), within the cafe\'s 200', clipped === `🎓 研讨会 · 《${'🐱'.repeat(39)}…》` && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(clipped) && clipped.length <= 200, clipped);
+// 0.0.5 ＋ 新开对话: the same naming, with its own label
+ok('new conversation title: the passage at hand', t.threadTitle('💬 新对话', { passage: { basename: 'B笔记', from: { line: 2, ch: 0 }, to: { line: 2, ch: 9 } } }) === '💬 新对话 · 《B笔记》第 3 行');
+ok('new conversation title: else the note being read, else the label alone', t.threadTitle('💬 新对话', { noteName: 'B笔记' }) === '💬 新对话 · 《B笔记》' && t.threadTitle('💬 新对话', {}) === '💬 新对话');
 console.log(fail ? `FAILED ${fail}` : 'ALL PASS');
 process.exitCode = fail ? 1 : 0;

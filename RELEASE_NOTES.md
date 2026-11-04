@@ -1,3 +1,13 @@
+# 0.0.5 — a new conversation from the chat
+
+- **＋** in the chat header (or the command **New Cat Cafe Conversation**) opens a conversation of its own in the Cat Cafe and turns the chat to it. Before, only a seminar could open one, so after a seminar on one note, a passage of another note could only be discussed in that seminar's conversation.
+- The new conversation is named for the passage attached in the chat (with its lines) or the note being read, such as `💬 新对话 · 《Note》第 3 行`, until the first cat to answer names it. An attached passage stays attached and goes with the first message there.
+- It is opened the way a seminar's conversation is: under the vault's path, with an idempotency key (a request resent after a lost answer gets the same conversation back), one at a time, and only turning the chat if the connection is still the one it was opened on.
+
+Privacy: ＋ sends the vault path (as the conversation's project) and the temporary title to the configured Cat Cafe, as a seminar in a new conversation does. See PRIVACY.md.
+
+Install the three individual assets from the same release: `main.js`, `manifest.json`, `styles.css`.
+
 # 0.0.4 — cats' replies appear as they are written
 
 - A cat's reply now shows up in the chat by itself, without switching conversations or refreshing. The Cat Cafe adds a reply as soon as the cat starts, empty, and fills in its words in place until it is done; the chat only looked for new messages, so a reply first seen empty stayed that way. It now notices a reply's words and state changing too.

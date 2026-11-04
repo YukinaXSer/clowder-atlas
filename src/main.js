@@ -148,15 +148,21 @@ function messagesKey(messages) {
 }
 
 /**
- * The name a seminar's own new conversation starts with: what the seminar is about (the passage or the note sent with
- * it, else the start of its topic). It is the cafe's temporary title, so the first cat to answer names the conversation.
+ * The name a conversation the plugin opens starts with: its kind (`label`), then what it is about — the passage or the
+ * note at hand, else the start of its topic. It is the cafe's temporary title, so the first cat to answer names the
+ * conversation after the talk.
  */
-function seminarThreadTitle({ passage = null, noteName = '', topic = '' } = {}) {
+function threadTitle(label, { passage = null, noteName = '', topic = '' } = {}) {
   const clip = (s, n) => { const chars = Array.from(s); return chars.length > n ? `${chars.slice(0, n - 1).join('')}…` : s; };
   const about = passage ? `《${clip(passage.basename, 40)}》${passageLines(passage)}`
     : noteName ? `《${clip(noteName, 40)}》`
     : clip(String(topic).replace(/\s+/g, ' ').trim(), 30);
-  return about ? `🎓 研讨会 · ${about}` : '🎓 研讨会';
+  return about ? `${label} · ${about}` : label;
+}
+
+/** A seminar's own conversation: 🎓 研讨会 · … (see threadTitle). */
+function seminarThreadTitle(about) {
+  return threadTitle('🎓 研讨会', about);
 }
 
 // ═══════════════════════════════════════════════
@@ -2856,6 +2862,14 @@ class CafeChatView extends obsidian.ItemView {
       header.createEl('span', { text: title, cls: 'atlas-chat-thread-name', attr: { title } });
     }
 
+    // ＋ opens a conversation of its own (see startNewConversation); an attached passage goes along
+    const newBtn = header.createEl('button', {
+      text: '＋',
+      cls: 'atlas-chat-new-btn',
+      attr: { title: '新开对话：在猫咖里新建一个对话，附着的选段会跟过去', 'aria-label': '新开对话' },
+    });
+    newBtn.addEventListener('click', () => this.plugin.startNewConversation());
+
     const hubBtn = header.createEl('button', {
       text: '↗ Hub',
       cls: 'atlas-chat-hub-btn',
@@ -3784,11 +3798,8 @@ class SeminarModal extends obsidian.Modal {
     }
     if (moved) return;
     if (opensNew) {
-      await this.plugin.refreshCafe();  // the new conversation joins the panel's list before the panel turns to it
-      if (!current()) {  // the list came back after the connection changed: the panel shows another cafe now
-        new obsidian.Notice('💬 猫咖连接已经换了，对话栏没有切到这场研讨会的对话');
-        return;
-      }
+      if (!(await this.plugin.showNewConversation(client, threadId))) new obsidian.Notice('💬 猫咖连接已经换了，对话栏没有切到这场研讨会的对话');
+      return;
     }
     await this.plugin.openCafeChat({ threadId });
   }
@@ -3913,6 +3924,12 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
       id: 'organize-seminar',
       name: 'Organize Cat Seminar 🎓',
       callback: () => this.openSeminarModal(),
+    });
+
+    this.addCommand({
+      id: 'new-cafe-conversation',
+      name: 'New Cat Cafe Conversation 💬',
+      callback: () => this.startNewConversation(),
     });
 
     // Single ribbon icon with coherent menu
@@ -4447,6 +4464,51 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     if (leaf) {
       await leaf.setViewState({ type: VIEW_TYPE_STAR_CHART, active: true });
       this.app.workspace.revealLeaf(leaf);
+    }
+  }
+
+  /**
+   * Turn the chat panel to a conversation just opened on `client`. The list is read again first, so the panel knows it
+   * (else it would fall back to the first conversation). If the connection changed meanwhile, the panel — showing another
+   * cafe now — is left alone, and false is returned.
+   */
+  async showNewConversation(client, threadId) {
+    if (this.cafeClient !== client) return false;
+    await this.refreshCafe();
+    if (this.cafeClient !== client) return false;
+    await this.openCafeChat({ threadId });
+    return true;
+  }
+
+  /**
+   * ＋ (chat header) or the command: open a conversation of its own in the cafe — named for the passage attached in the
+   * chat, else the note being read, until the first cat to answer names it — and turn the chat panel to it. An attached
+   * passage stays attached, so it goes with the first message there. One opening at a time; its key gets the same
+   * conversation back if Obsidian resends the request.
+   */
+  async startNewConversation() {
+    if (!this.isCafeConnected) {
+      new obsidian.Notice('⚠️ 请先连接猫咖 Hub');
+      return;
+    }
+    if (this._openingConversation) return;
+    this._openingConversation = true;
+    const client = this.cafeClient;
+    try {
+      const passage = this.chatPassage;
+      const noteName = passage ? '' : (this.app.workspace.getActiveFile()?.basename || '');
+      const temporaryTitle = threadTitle('💬 新对话', { passage, noteName });
+      const thread = await client.createThread({ temporaryTitle, projectPath: this.app.vault.adapter.basePath || '', idempotencyKey: crypto.randomUUID() });
+      const title = thread.title || temporaryTitle;  // the cafe may answer before it applies the title
+      if (!(await this.showNewConversation(client, thread.id))) {
+        new obsidian.Notice(`💬 新对话「${title}」建在原来连接的猫咖（${client.baseUrl}）里；猫咖连接已经换了，对话栏没有切过去`);
+        return;
+      }
+      new obsidian.Notice(`💬 已新开对话「${title}」${passage ? '，选段跟过来了' : ''}`);
+    } catch (err) {
+      new obsidian.Notice(`⚠️ 新对话没有建成：${err.message || '未知错误'}`);
+    } finally {
+      this._openingConversation = false;
     }
   }
 

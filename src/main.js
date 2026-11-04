@@ -2534,9 +2534,12 @@ class CafeChatView extends obsidian.ItemView {
   }
 
   async applyChatContext(options = {}) {
+    // A conversation is another connection's once the plugin has connected otherwise (see openCafeChat): nothing of
+    // this context is applied then, also when it was kept for onOpen. False when not applied.
+    if (options.client && options.client !== this.plugin.cafeClient) return false;
     if (!this._input) {
       this._pendingContext = options;
-      return;
+      return true;
     }
     if (options.threadId && options.threadId !== this._threadId) {
       // As when it is picked in the header: the other conversation's messages leave the screen before this one's load
@@ -2563,6 +2566,7 @@ class CafeChatView extends obsidian.ItemView {
     }
     await this._loadMessages();
     this._pollSoon();
+    return true;
   }
 
   _renderOffline(container) {
@@ -3797,11 +3801,10 @@ class SeminarModal extends obsidian.Modal {
       this.plugin._renderChatPassage();
     }
     if (moved) return;
-    if (opensNew) {
-      if (!(await this.plugin.showNewConversation(client, threadId))) new obsidian.Notice('💬 猫咖连接已经换了，对话栏没有切到这场研讨会的对话');
-      return;
-    }
-    await this.plugin.openCafeChat({ threadId });
+    const shown = opensNew
+      ? await this.plugin.showNewConversation(client, threadId)
+      : (await this.plugin.openCafeChat({ threadId, client })) !== false;
+    if (!shown) new obsidian.Notice('💬 猫咖连接已经换了，对话栏没有切到这场研讨会的对话');
   }
 
   onClose() {
@@ -4476,8 +4479,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     if (this.cafeClient !== client) return false;
     await this.refreshCafe();
     if (this.cafeClient !== client) return false;
-    await this.openCafeChat({ threadId });
-    return true;
+    return (await this.openCafeChat({ threadId, client })) !== false;
   }
 
   /**
@@ -4517,23 +4519,23 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     return this.app.workspace.getLeavesOfType(VIEW_TYPE_CAFE_CHAT)[0]?.view?._threadId ?? null;
   }
 
+  /**
+   * Show the chat panel, creating it if needed, with `options` applied. A conversation (`threadId`) belongs to the
+   * connection it was listed or opened on (`client`, else the one now): carried through the panel's creation, which can
+   * take a while, so it is never applied to another connection (see applyChatContext). False when it was not applied.
+   */
   async openCafeChat(options = {}) {
+    if (options.threadId && !options.client) options = { ...options, client: this.cafeClient };
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_CAFE_CHAT);
     if (existing.length) {
       this.app.workspace.revealLeaf(existing[0]);
-      if (existing[0].view?.applyChatContext) {
-        await existing[0].view.applyChatContext(options);
-      }
-      return;
+      return existing[0].view?.applyChatContext ? existing[0].view.applyChatContext(options) : true;
     }
     const leaf = this.app.workspace.getRightLeaf(false);
-    if (leaf) {
-      await leaf.setViewState({ type: VIEW_TYPE_CAFE_CHAT, active: true });
-      this.app.workspace.revealLeaf(leaf);
-      if (leaf.view?.applyChatContext) {
-        await leaf.view.applyChatContext(options);
-      }
-    }
+    if (!leaf) return false;
+    await leaf.setViewState({ type: VIEW_TYPE_CAFE_CHAT, active: true });
+    this.app.workspace.revealLeaf(leaf);
+    return leaf.view?.applyChatContext ? leaf.view.applyChatContext(options) : true;
   }
 
   async _askCatsAboutNote(file) {

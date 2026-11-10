@@ -1,5 +1,9 @@
 # Data and network behavior
 
+The Lens reads local links and source paragraphs to display research context. Viewing or collecting them does not send anything; they are sent only through an explicit chat or seminar action. Newly saved pending notes include the originating Cat Cafe address in `atlas_source_cafe`, so their original conversation is not inferred on a different connection. Older notes without it are not assigned an origin from their title alone.
+
+Local trial staging backs up and replaces only the three plugin binaries, with local commit/hash receipts. It does not copy or roll back settings, chats or note content.
+
 The connection starts disabled. Local graph, provenance, metadata curation, and Canvas features run inside Obsidian without a remote service.
 
 ## Local data

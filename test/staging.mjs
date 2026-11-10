@@ -1,0 +1,54 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'atlas-stage-test-'));
+const repo=path.join(dir,'repo'), names=['main.js','styles.css','manifest.json'];
+const write=(p,text)=>{fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,text);};
+const manifest=version=>JSON.stringify({id:'clowder-atlas',version});
+const git=(...args)=>execFileSync('git',args,{cwd:repo,stdio:'pipe'});
+const script=path.join(repo,'scripts/stage-local.mjs');
+const a=path.join(dir,'A'),b=path.join(dir,'B');
+const plugin=v=>path.join(v,'.obsidian/plugins/clowder-atlas');
+const run=(...args)=>spawnSync(process.execPath,[script,...args],{cwd:repo,encoding:'utf8'});
+const args=['--vault',a,'--vault',b];
+try {
+ write(script,fs.readFileSync(new URL('../scripts/stage-local.mjs',import.meta.url)));
+ write(path.join(repo,'.gitignore'),'dist/\n');
+ for(const n of names)write(path.join(repo,n==='manifest.json'?n:'src/'+n),n==='manifest.json'?manifest('0.0.7'):'candidate-v1');
+ git('init','-q');git('add','.');git('-c','user.name=Test','-c','user.email=test@invalid','commit','-qm','candidate');
+ for(const n of names)write(path.join(repo,'dist',n),fs.readFileSync(path.join(repo,n==='manifest.json'?n:'src/'+n)));
+ for(const v of [a,b]){
+  for(const n of names)write(path.join(plugin(v),n),n==='manifest.json'?manifest('0.0.6'):'stable');
+  write(path.join(plugin(v),'data.json'),'private settings '+v);
+ }
+ const settings=fs.readFileSync(path.join(plugin(a),'data.json'),'utf8');
+ const lock=path.join(plugin(a),'.atlas-local-stage.lock');
+ write(lock,JSON.stringify({pid:process.pid}));
+ const blocked=run(...args);
+ assert.notEqual(blocked.status,0,'concurrent staging must not write over a vault owned by another staging operation');
+ assert.equal(fs.readFileSync(path.join(plugin(a),'main.js'),'utf8'),'stable');
+ fs.unlinkSync(lock);
+ let result=run(...args);assert.equal(result.status,0,result.stderr);
+ assert.equal(fs.readFileSync(path.join(plugin(a),'main.js'),'utf8'),'candidate-v1');
+ assert.equal(fs.readFileSync(path.join(plugin(a),'.backup-last-release/main.js'),'utf8'),'stable');
+ assert.equal(fs.readFileSync(path.join(plugin(a),'data.json'),'utf8'),settings);
+ write(path.join(repo,'src/main.js'),'candidate-v2');git('add','.');git('-c','user.name=Test','-c','user.email=test@invalid','commit','-qm','iterate');
+ write(path.join(repo,'dist/main.js'),'candidate-v2');
+ result=run(...args);assert.equal(result.status,0,result.stderr);
+ assert.equal(fs.readFileSync(path.join(plugin(a),'.backup-last-release/main.js'),'utf8'),'stable','repeated trial must retain the stable rollback baseline');
+ fs.unlinkSync(path.join(plugin(b),'styles.css'));
+ result=run(...args);assert.notEqual(result.status,0);
+ assert.equal(fs.readFileSync(path.join(plugin(a),'main.js'),'utf8'),'candidate-v2','an invalid second vault cannot partly update the first');
+ write(path.join(plugin(b),'styles.css'),'candidate-v1');
+ write(path.join(plugin(a),'data.json'),'settings edited while testing');
+ result=run('--rollback',...args);assert.equal(result.status,0,result.stderr);
+ for(const v of [a,b]) assert.equal(fs.readFileSync(path.join(plugin(v),'main.js'),'utf8'),'stable');
+ assert.equal(fs.readFileSync(path.join(plugin(a),'data.json'),'utf8'),'settings edited while testing','rollback must not restore old settings');
+ write(path.join(plugin(b),'.backup-last-release/main.js'),'corrupt');
+ result=run('--rollback',...args);assert.notEqual(result.status,0);
+ assert.match(result.stderr,/Backup main.js changed/);
+ assert.equal(fs.readFileSync(path.join(plugin(a),'main.js'),'utf8'),'stable');
+ console.log('PASS two-vault staging, stable iterative backup, all-target preflight, rollback and untouched user settings');
+} finally {fs.rmSync(dir,{recursive:true,force:true});}

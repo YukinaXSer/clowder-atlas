@@ -1,5 +1,7 @@
 # Clowder Atlas
 
+The Lens lets you inspect backlink context, source excerpts, related discussions and derived insights, and collect paragraphs into the selection tray. Note bodies and tables retain native Obsidian rendering. Memory attributes are folded into the footer. Each candidate is tried locally before explicit operator permission to merge and publish; see [Publishing](PUBLISHING.md).
+
 [简体中文](README.zh-CN.md)
 
 Explore linked notes as a memory star chart, inspect their provenance, and optionally bring Clowder AI companions into your reading workflow.

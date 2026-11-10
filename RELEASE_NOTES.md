@@ -1,3 +1,11 @@
+# 0.0.7 — a research Lens, without note-body decorations
+
+- Keep Markdown bodies, Live Preview tables and reading views free of Atlas-injected badges or luminance styling.
+- Replace the sidebar metadata dashboard with actual incoming link paragraphs and outgoing source excerpts. Jump to their source positions or add them to the persistent multi-passage tray without leaving the Lens.
+- Show derived pending/crystallized insights and conversations backed by exact local request records on the current Cafe. Newly saved insights record the source Cafe address; unknown older origins are not guessed from titles.
+- Add note questions, seminars, exact-note star-chart location and explicit pending-note crystallization. Fold memory-type and pinned-star controls into the footer.
+- Add explicit local trial staging and rollback commands. Only the three plugin binaries are backed up/restored; settings and notes are preserved. Operator trial and explicit approval precede merging, tagging and release publication.
+
 # 0.0.6 — cross-file passage research
 
 - Collect multiple selections across notes, with numbered source chips, exact-selection deduplication, jump/remove/clear controls and a persistent unsent tray.

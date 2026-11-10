@@ -35,6 +35,14 @@ This release supports **desktop Obsidian 1.14.5 or newer**. Version 1.14.5 is th
 
 The default API address is `http://localhost:3004`. The connection is disabled until you enable it. Local note exploration does not require a Clowder AI account. Companion use depends on that instance's configuration, model accounts, and any provider charges.
 
+## Cross-file passage research
+
+Select text in a note and choose **🐾 把选中段落交给猫猫**, then do the same in other notes. Selections accumulate in a numbered tray; selecting the same text at the same location again does not duplicate it. Click a source chip to return to its note, remove individual selections, or clear the tray. Unsent selections survive plugin reloads and have no automatic expiry. The combined selection limit is 90,000 characters; the final message including your question and source labels must also fit the Cat Cafe limit.
+
+Send a question referring to **#1**, **#2**, etc., or open **研讨会** for comparison, evidence-chain analysis, synthesis, or debate. **＋** carries the entire tray into a new conversation. While selections are attached, the whole-note attachment is excluded.
+
+A revision answering a multi-passage request is **copy-only**. A single-passage request retains the comparison and replacement flow below. Saving a matched reply as a pending note links the source notes of that request, with full vault-relative paths to distinguish identical filenames; it does not combine sources from unrelated requests in the same conversation. If the Cat Cafe does not identify the input message a reply answers, the plugin cannot infer those sources. Failed sends retain every selection for retry or restoration.
+
 ## Passage revision
 
 Select a passage in an **editing view**, attach it with the single menu action, and write your request. With a passage attached, the message contains that passage rather than a note preview. Empty requests ask the cats for their thoughts and an optional revision.

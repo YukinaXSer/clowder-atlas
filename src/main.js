@@ -65,6 +65,8 @@ const DEFAULT_SETTINGS = {
   summonedCats: [],
   failedSends: [],  // sends that did not land, kept until resent, put back or deleted (see recordFailedSend)
   revisionTargets: {},  // per cafe and thread: the passage that conversation is revising (see setRevisionTarget)
+  chatPassages: [],  // unsent selections; kept until sent or explicitly removed
+  passageRequests: {},  // multi-source request snapshots; never legacy single-passage replacement targets
 };
 
 // ═══════════════════════════════════════════════
@@ -73,6 +75,33 @@ const DEFAULT_SETTINGS = {
 // The cafe takes up to 100,000 characters per message (clowder-ai messages.schema.ts); room is left for the request.
 const PASSAGE_MAX_CHARS = 90000;
 const CHAT_PLACEHOLDER = '和伴读猫猫聊笔记（默认唤醒在场猫猫，Enter 发送）…';
+
+function normalizePassages(input) {
+  return (Array.isArray(input) ? input : input ? [input] : []).filter(p => p && typeof p.text === 'string');
+}
+
+function samePassage(a, b) {
+  return a.path === b.path && a.text === b.text
+    && a.from.line === b.from.line && a.from.ch === b.from.ch && a.to.line === b.to.line && a.to.ch === b.to.ch;
+}
+
+function passagesUniqueNotes(input) {
+  return [...new Map(normalizePassages(input).map(p => [p.path, { path: p.path, basename: p.basename }])).values()];
+}
+
+function passagesLabel(input) {
+  const list = normalizePassages(input), notes = passagesUniqueNotes(list);
+  return `${list.length} 段选段（跨 ${notes.length} 篇笔记 · 共 ${list.reduce((n, p) => n + p.text.length, 0)} 字）`;
+}
+
+function passagesMessage(input, request = '') {
+  const list = normalizePassages(input), notes = passagesUniqueNotes(list);
+  const fence = passageFence(list.map(p => p.text).join('\n'));
+  return `[跨文件选段交叉引用 · 共 ${list.length} 段 · 来自 ${notes.length} 篇笔记]\n\n`
+    + list.map((p, i) => `[#${i + 1} · 笔记「${p.basename}」${passageLines(p)} · 路径：${p.path}]\n\n${fence}\n${p.text}\n${fence}`).join('\n\n')
+    + `\n\n${request || '请交叉对比以上选段的核心关联、共识、分歧与待验证问题。'}\n\n`
+    + '（引用源文时请标明 [#序号] 与源笔记路径；同名笔记请用完整路径双链。多段综合稿只供复制，不自动替换源文。）';
+}
 
 /** 「第 3–5 行」 for a passage; a selection that ends at the start of a line does not count that line. */
 function passageLines(p) {
@@ -126,6 +155,7 @@ function locatePassage(content, target) {
  * up to those words; a revised version goes in a 修改稿 block, so it can be put back in its place.
  */
 function passageMessage(p, request) {
+  if (Array.isArray(p)) return p.length === 1 ? passageMessage(p[0], request) : passagesMessage(p, request);
   const fence = passageFence(p.text);
   return `[选段 · 笔记「${p.basename}」${passageLines(p)}]\n\n${fence}\n${p.text}\n${fence}\n\n`
     + `${request || '请看看这段，说说你的看法；觉得需要修改的话，也给出修改稿。'}\n\n`
@@ -134,6 +164,11 @@ function passageMessage(p, request) {
 
 /** How a passage message reads in the panel before the cafe has it, and when it failed: the passage named, then the words. */
 function passageShown(p, request) {
+  if (Array.isArray(p)) {
+    if (p.length === 1) return passageShown(p[0], request);
+    const head = `📌 交叉引用 · ${passagesLabel(p)} · ${p.map((s, i) => `#${i + 1}《${s.basename}》${passageLines(s)}`).join(' · ')}`;
+    return request ? `${head}\n${request}` : head;
+  }
   const head = `📌 选段 · 《${p.basename}》${passageLines(p)}`;
   return request ? `${head}\n${request}` : head;
 }
@@ -154,6 +189,11 @@ function messagesKey(messages) {
  */
 function threadTitle(label, { passage = null, noteName = '', topic = '' } = {}) {
   const clip = (s, n) => { const chars = Array.from(s); return chars.length > n ? `${chars.slice(0, n - 1).join('')}…` : s; };
+  if (Array.isArray(passage)) {
+    if (passage.length < 2) return threadTitle(label, { passage: passage[0] || null, noteName, topic });
+    const notes = passagesUniqueNotes(passage);
+    return `${label} · 《${clip(notes[0].basename, 20)}》${notes.length > 1 ? `等 ${notes.length} 篇（${passage.length} 段）` : `（${passage.length} 段选段）`}`;
+  }
   const about = passage ? `《${clip(passage.basename, 40)}》${passageLines(passage)}`
     : noteName ? `《${clip(noteName, 40)}》`
     : clip(String(topic).replace(/\s+/g, ' ').trim(), 30);
@@ -2630,15 +2670,34 @@ class CafeChatView extends obsidian.ItemView {
   _renderPassage() {
     const row = this._passageRow;
     if (!row) return;  // offline layout
-    const p = this.plugin.chatPassage;
+    const list = this.plugin.chatPassages;
+    const p = list[0];
     row.empty();
     row.hidden = !p;
+    row.toggleClass('is-multi', list.length > 1);
     if (this._input) {
       this._input.placeholder = !p ? CHAT_PLACEHOLDER
-        : '告诉猫猫要做什么：讨论这段，还是直接改（如「这段逻辑通吗？」「帮我改得更简洁」），Enter 发送…';
+        : list.length > 1 ? `围绕这 ${list.length} 段选段提问（如「对比 #1 和 #2」），或开启研讨会…`
+        : '告诉猫猫要做什么：讨论这段，还是直接改；继续选段可跨笔记累加，Enter 发送…';
     }
     this._syncReadingNote();  // the 📎 whole-note toggle steps aside while a passage is attached, and comes back after
     if (!p) return;
+    if (list.length > 1) {
+      const head = row.createDiv('atlas-chat-passage-head');
+      head.createSpan({ text: `📌 交叉引用 · ${passagesLabel(list)}`, cls: 'atlas-chat-passage-label' });
+      const clear = head.createEl('button', { text: '清空 ✕', cls: 'atlas-chat-passage-clear', attr: { 'aria-label': '清空全部选段' } });
+      clear.addEventListener('click', () => this.plugin.setChatPassages([]));
+      const chips = row.createDiv({ cls: 'atlas-chat-passage-chips', attr: { role: 'list', 'aria-label': '已选跨文件段落列表' } });
+      list.forEach((s, i) => {
+        const chip = chips.createDiv({ cls: 'atlas-chat-passage-chip', attr: { role: 'listitem' } });
+        chip.createSpan({ text: `#${i + 1}`, cls: 'atlas-chat-passage-chip-idx' });
+        const jump = chip.createEl('button', { text: `《${s.basename}》${passageLines(s)} · ${s.text.length} 字`, cls: 'atlas-chat-passage-chip-jump', attr: { title: `${s.path}\n${s.text.slice(0, 400)}` } });
+        jump.addEventListener('click', () => this.plugin.jumpToPassage(s));
+        const remove = chip.createEl('button', { text: '✕', cls: 'atlas-chat-passage-chip-rm', attr: { 'aria-label': `移除第 ${i + 1} 段选段` } });
+        remove.addEventListener('click', () => this.plugin.setChatPassages(this.plugin.chatPassages.filter(item => item !== s)));
+      });
+      return;
+    }
     row.createSpan({ text: '📌', cls: 'atlas-chat-passage-icon', attr: { 'aria-hidden': 'true' } });
     row.createSpan({
       text: `选段 · 《${p.basename}》${passageLines(p)} · ${p.text.length} 字`,
@@ -2647,8 +2706,7 @@ class CafeChatView extends obsidian.ItemView {
     });
     const clear = row.createEl('button', { text: '✕', cls: 'atlas-chat-passage-clear', attr: { title: '不附带这段', 'aria-label': '不附带这段' } });
     clear.addEventListener('click', () => {
-      this.plugin.chatPassage = null;
-      this.plugin._renderChatPassage();
+      this.plugin.setChatPassages([]);
     });
   }
 
@@ -2771,7 +2829,7 @@ class CafeChatView extends obsidian.ItemView {
     this._seminarBtn = top.createEl('button', { text: '研讨会', cls: 'atlas-companion-seminar-pill' });
     this._seminarBtn.addEventListener('click', () => {
       const file = this.app.workspace.getActiveFile();  // the note being read now, not when the strip was built
-      const passage = this.plugin.chatPassage;  // a passage attached here goes to the seminar instead of the whole note
+      const passage = this.plugin.chatPassages.length ? this.plugin.chatPassages : null;
       this.plugin.openSeminarModal({ file, attachNote: !passage && Boolean(file), passage });
     });
     this._dock = this._strip.createDiv({ cls: 'atlas-companion-dock', attr: { 'aria-label': '可选伙伴；可横向滚动' } });
@@ -2986,8 +3044,10 @@ class CafeChatView extends obsidian.ItemView {
   }
 
   async _sendMessage() {
+    if (this._sending) return;
     const content = this._input.value.trim();
-    const passage = this.plugin.chatPassage;  // the passage attached to this message, if any
+    const passages = this.plugin.chatPassages;
+    const passage = passages.length ? passages : null;
     // a passage may go without words: the cats are then asked what they make of it
     if ((!content && !passage) || !this.plugin.isCafeConnected) return;
     // Where this message goes is fixed when 发送 is pressed, before anything is awaited: this cafe, this thread.
@@ -3018,12 +3078,13 @@ class CafeChatView extends obsidian.ItemView {
       }
     }
 
+    if (fullContent.length > 100000) {
+      new obsidian.Notice('⚠️ 选段、提问与来源标签合计超过猫咖一条消息上限，请减少部分选段或提问');
+      return;
+    }
+    this._sending = true;
     this._input.value = '';
     this._input.focus();
-    if (passage && this.plugin.chatPassage === passage) {  // a passage goes with this one message
-      this.plugin.chatPassage = null;
-      this.plugin._renderChatPassage();
-    }
 
     // Optimistic local render
     const sentAt = Date.now();
@@ -3032,11 +3093,8 @@ class CafeChatView extends obsidian.ItemView {
     // A passage request gets its own identity; once the cafe has stored this message, its id is bound to the request,
     // so a 修改稿 answering it (and only such a reply) can replace this passage.
     const revisionId = passage ? `rq-${sentAt}-${Math.random().toString(36).slice(2, 6)}` : null;
-    if (revisionId) {
-      await this.plugin.setRevisionTarget({ id: revisionId, cafe, threadId, path: passage.path, original: passage.text, from: passage.from, to: passage.to, at: sentAt, messageIds: [] });
-    }
-
     try {
+      if (revisionId) await this.plugin.rememberPassageRequest(revisionId, cafe, threadId, passages);
       // the connection changed while the note was being read: never send to whatever is connected now
       if (this.plugin.cafeClient !== client) throw new Error('发送前猫咖连接已切换');
       const body = { content: fullContent };
@@ -3049,6 +3107,7 @@ class CafeChatView extends obsidian.ItemView {
       });
       console.log('Clowder Atlas: Message sent, queued to', resp.entries?.map(e => e.targetCatId).join(', '));
       if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
+      if (passage) await this.plugin.consumeChatPassages(passages);
       this._pollSoon();  // the message, and soon the cats' replies, are read back from the cafe
     } catch (err) {
       // It did not land. It is kept — the text as typed, what was sent, its thread and the reason — as a failed message
@@ -3057,7 +3116,10 @@ class CafeChatView extends obsidian.ItemView {
       // reconnecting or restarting Obsidian does not lose it.
       const reason = err.message || '未知错误';
       new obsidian.Notice(`⚠️ 消息发送失败：${reason}。已留在对话里，可以重发或放回输入框`);
-      await this.plugin.recordFailedSend({ id, cafe, threadId, content, fullContent, ...(passage ? { passage: { ...passage }, revisionId } : {}), error: reason, at: sentAt });
+      await this.plugin.recordFailedSend({ id, cafe, threadId, content, fullContent, ...(passage ? { passage: passages[0], passages, revisionId } : {}), error: reason, at: sentAt });
+      if (passage) await this.plugin.consumeChatPassages(passages);
+    } finally {
+      this._sending = false;
     }
   }
 
@@ -3079,7 +3141,8 @@ class CafeChatView extends obsidian.ItemView {
     const sameCafe = Boolean(record.cafe) && record.cafe === this.plugin.cafeClient?.baseUrl;
     const where = !sameCafe ? 'elsewhere'
       : (record.threadId ?? null) === (this._threadId ?? null) ? null : record.threadId ? 'gone' : 'lobby';
-    const shown = record.passage ? passageShown(record.passage, record.content) : record.content;
+    const attached = normalizePassages(record.passages || record.passage);
+    const shown = attached.length ? passageShown(attached, record.content) : record.content;
     return { id: record.id, type: 'user', content: shown, from: { kind: 'user' }, lifecycle: { startedAt: record.at }, _failed: { record, where } };
   }
 
@@ -3110,14 +3173,14 @@ class CafeChatView extends obsidian.ItemView {
   /** Back into the draft box, after whatever is being written there (never over it); the failed message then goes. */
   async _putBackFailed(record) {
     if (!this._input) return;
-    if (record.passage) {  // the passage it carried comes back too — but never over another one attached meanwhile
-      const attached = this.plugin.chatPassage;
-      if (attached && (attached.path !== record.passage.path || attached.text !== record.passage.text)) {
+    const passages = normalizePassages(record.passages || record.passage);
+    if (passages.length) {
+      const attached = this.plugin.chatPassages;
+      if (attached.length && (attached.length !== passages.length || attached.some((p, i) => !samePassage(p, passages[i])))) {
         new obsidian.Notice('💡 输入框上已经附着另一段选段：先发送或去掉它，再放回这条');
         return;
       }
-      this.plugin.chatPassage = { ...record.passage };
-      this.plugin._renderChatPassage();
+      await this.plugin.setChatPassages(passages);
     }
     if (record.content) {
       const draft = this._input.value.replace(/\s+$/, '');
@@ -3279,10 +3342,11 @@ class CafeChatView extends obsidian.ItemView {
       const saveBtn = actRow.createEl('button', {
         text: '💎 存为待结晶笔记',
         cls: 'atlas-chat-action-pill',
-        attr: { title: '存进待结晶目录并关联当前笔记；审阅后在透镜里点亮结晶' }
+        attr: { title: '存进待结晶目录并关联这次请求的源笔记；审阅后在透镜里点亮结晶' }
       });
+      const sourceThreadId = this._threadId;
       saveBtn.addEventListener('click', () => {
-        this.plugin.saveMessageAsPendingNote(msg, catData, this._threadId);
+        this.plugin.saveMessageAsPendingNote(msg, catData, sourceThreadId, client.baseUrl);
       });
 
       const appBtn = actRow.createEl('button', {
@@ -3305,7 +3369,7 @@ class CafeChatView extends obsidian.ItemView {
   _renderRevisionActions(row, msg, content) {
     const revised = extractRevision(content);
     if (revised === null) return;
-    const { target, reason } = this.plugin.revisionTargetForReply(this.plugin.cafeClient?.baseUrl, msg);
+    const { target, reason } = this.plugin.revisionTargetForReply(this.plugin.cafeClient?.baseUrl, msg, this._threadId);
     if (target) {
       const inUse = target.original === revised;
       const apply = row.createEl('button', {
@@ -3319,7 +3383,7 @@ class CafeChatView extends obsidian.ItemView {
     const copy = row.createEl('button', {
       text: '📋 复制修改稿',
       cls: 'atlas-chat-action-pill',
-      attr: target ? {} : { title: reason === 'several'
+      attr: target ? {} : { title: reason === 'multi' ? '这是多段选段交叉引用的综合稿，请复制后按需粘贴' : reason === 'several'
         ? '这条回复同时回答了几次选段请求，分不清改的是哪一段：可以复制后自己粘贴'
         : '分不清这份修改稿对应哪一段选段：可以复制后自己粘贴' },
     });
@@ -3471,8 +3535,10 @@ class SeminarModal extends obsidian.Modal {
     this._targetFile = opts.file || this.app.workspace.getActiveFile();
     this._attachNote = opts.attachNote !== undefined ? Boolean(opts.attachNote) : Boolean(this._targetFile);
     this._defaultTopic = opts.defaultTopic || '';
-    this._passage = opts.passage || null;  // the chat panel's 选段, attached instead of the whole note
-    this._attachPassage = Boolean(this._passage);
+    this._passages = normalizePassages(opts.passages ?? opts.passage ?? this.plugin.chatPassages);
+    this._passage = this._passages[0] || null;
+    this._attachPassage = this._passages.length > 0;
+    if (this._attachPassage && opts.attachNote === undefined) this._attachNote = false;
     // The dialog belongs to the connection it was opened on: it lists that cafe's conversations and starts seminars
     // there only; once the plugin is connected otherwise it is void (see _start, _open). So a dialog opens at most one.
     this._client = this.plugin.cafeClient;
@@ -3510,7 +3576,12 @@ class SeminarModal extends obsidian.Modal {
     const noteTitle = this._targetFile ? `《${this._targetFile.basename}》` : '当前议题';
     const passage = this._passage;
     const passageTitle = passage ? `《${passage.basename}》${passageLines(passage)}这段` : '';
-    (passage ? [
+    (this._passages.length > 1 ? [
+      { label: '🔗 交叉比对异同', text: '请交叉比对以上选段的核心概念、共识和关键分歧，标明 [#序号] 与源笔记双链。' },
+      { label: '🧭 证据链与因果推演', text: '请串联这些选段的证据链，区分事实与推论，指出逻辑断层和待补反例。' },
+      { label: '✨ 综合提炼结晶卡', text: '请综合这些选段提炼知识卡片，包含核心命题、跨篇源文对照与待验证问题。' },
+      { label: '⚔️ 正反交锋辩论', text: '请从不同视角辨析这些选段的论据、隐含前提与适用边界，引用时标明 [#序号]。' },
+    ] : passage ? [
       { label: '🔍 审阅这段', text: `请从各自专长审阅${passageTitle}：论证是否成立、表达是否清楚、还能补充什么。` },
       { label: '✏️ 各改一版', text: `请每只猫各自给出${passageTitle}的修改稿，并说明改了什么、为什么。` },
       { label: '⚡ 正反辩论', text: `请围绕${passageTitle}的核心说法展开正反辩论：它在什么情况下成立，什么情况下会失效？` },
@@ -3547,6 +3618,8 @@ class SeminarModal extends obsidian.Modal {
     });
     if (this._defaultTopic) {
       this._topicInput.value = this._defaultTopic;
+    } else if (this._passages.length > 1) {
+      this._topicInput.value = `请围绕这 ${passagesLabel(this._passages)} 交叉研讨：核心共识、分歧与可提炼的结论是什么？引用时标明 [#序号] 与源笔记双链。`;
     } else if (passage) {
       this._topicInput.value = `请从各自专长审阅${passageTitle}：论证是否成立、表达是否清楚、还能补充什么。`;
     } else if (this._targetFile) {
@@ -3556,13 +3629,18 @@ class SeminarModal extends obsidian.Modal {
     // Passage attachment (from the chat panel's 选段): this part of the note
     if (passage) {
       const row = contentEl.createDiv('atlas-seminar-attach');
-      const where = `《${passage.basename}》${passageLines(passage)}`;
-      const label = () => (this._attachPassage ? `📌 ✓ 已附带选段：${where}（${passage.text.length} 字）` : `📌 附带选段：${where}`);
+      const where = this._passages.length > 1 ? passagesLabel(this._passages) : `《${passage.basename}》${passageLines(passage)}`;
+      const label = () => this._passages.length > 1
+        ? `📌 ${this._attachPassage ? '✓ 已附带' : '附带'} ${where}`
+        : (this._attachPassage ? `📌 ✓ 已附带选段：${where}（${passage.text.length} 字）` : `📌 附带选段：${where}`);
       const btn = row.createEl('button', { text: label(), cls: `atlas-btn atlas-seminar-attach-btn ${this._attachPassage ? 'is-active' : ''}` });
+      const details = this._passages.length > 1 ? row.createDiv('atlas-seminar-passage-list') : null;
+      if (details) this._passages.forEach((p, i) => details.createSpan({ text: `#${i + 1} 《${p.basename}》${passageLines(p)}`, cls: 'atlas-seminar-passage-chip', attr: { title: `${p.path}\n${p.text.slice(0, 400)}` } }));
       btn.addEventListener('click', () => {
         this._attachPassage = !this._attachPassage;
         btn.toggleClass('is-active', this._attachPassage);
         btn.textContent = label();
+        if (details) details.hidden = !this._attachPassage;
         if (this._noteAttachRow) this._noteAttachRow.style.display = this._attachPassage ? 'none' : '';
       });
     }
@@ -3745,13 +3823,16 @@ class SeminarModal extends obsidian.Modal {
     content += `**议题**：${topic}\n`;
     content += `**参会猫猫**：${catNames.join('、')}\n\n`;
 
-    const passage = this._attachPassage ? this._passage : null;  // a passage goes alone, never with the whole note
+    const passages = this._attachPassage ? this._passages : [];
+    const passage = passages[0] || null;
     if (this._attachNote && this._targetFile && !passage) {
       const noteContent = await this.app.vault.read(this._targetFile);
       const preview = noteContent.substring(0, 1500);
       content += `---\n📎 参考笔记「${this._targetFile.basename}」：\n\n${preview}${noteContent.length > 1500 ? '\n...(全文 ' + noteContent.length + ' 字)' : ''}\n\n---\n\n`;
     }
-    if (passage) {
+    if (passages.length > 1) {
+      content += passagesMessage(passages, topic) + '\n\n';
+    } else if (passage) {
       const fence = passageFence(passage.text);
       content += `---\n📌 选段 · 《${passage.basename}》${passageLines(passage)}：\n\n${fence}\n${passage.text}\n${fence}\n\n---\n\n`;
       content += `如果要给出修改，请把改好的完整段落放进一个 ${fence}修改稿 代码块（只放改好的正文），说明写在代码块外。\n\n`;
@@ -3759,6 +3840,7 @@ class SeminarModal extends obsidian.Modal {
 
     content += `请参会猫猫从各自专长出发，就以上议题给出精炼、可直接整理进笔记的观点与建议。\n\n`;
     content += mentions.join('\n');
+    if (content.length > 100000) throw new Error('选段、议题与来源标签合计超过消息上限，请减少研讨材料');
 
     // Its conversation: the one picked in 3. 在哪开会 (from this dialog's cafe), or the one this dialog opens. That is
     // opened at most once: its key is made once and sent with every attempt, so a retry after a failed send, or a
@@ -3767,7 +3849,7 @@ class SeminarModal extends obsidian.Modal {
     const opensNew = this._where !== 'existing';
     if (opensNew && !this._opening) this._opening = { key: crypto.randomUUID(), thread: null };
     if (opensNew && !this._opening.thread) {
-      const temporaryTitle = seminarThreadTitle({ passage, noteName: this._attachNote && this._targetFile && !passage ? this._targetFile.basename : '', topic });
+      const temporaryTitle = seminarThreadTitle({ passage: passages.length ? passages : null, noteName: this._attachNote && this._targetFile && !passage ? this._targetFile.basename : '', topic });
       const thread = await client.createThread({ temporaryTitle, projectPath: this.app.vault.adapter.basePath || '', idempotencyKey: this._opening.key });
       this._opening.thread = { ...thread, title: thread.title || temporaryTitle };  // the cafe may answer before it applies the title
       if (!current()) return this._void();  // the conversation stays in the cafe that opened it; nothing is sent
@@ -3777,7 +3859,7 @@ class SeminarModal extends obsidian.Modal {
     const body = { content, threadId };
     const revisionId = passage ? `rq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : null;
     if (revisionId) {  // a 修改稿 answering this seminar message, from any of its cats, can then replace this passage
-      await this.plugin.setRevisionTarget({ id: revisionId, cafe: client.baseUrl, threadId, path: passage.path, original: passage.text, from: passage.from, to: passage.to, at: Date.now(), messageIds: [] });
+      await this.plugin.rememberPassageRequest(revisionId, client.baseUrl, threadId, passages);
       if (!current()) return this._void();
     }
 
@@ -3796,10 +3878,7 @@ class SeminarModal extends obsidian.Modal {
         ? `🎓 研讨会已在新对话「${this._opening.thread.title}」开启！${catNames.join('、')} 正在右侧对话栏准备发言...`
         : `🎓 研讨会已开启！${catNames.join('、')} 正在右侧对话栏准备发言...`);
     this.close();
-    if (passage && this.plugin.chatPassage === this._passage) {  // the passage went with the seminar
-      this.plugin.chatPassage = null;
-      this.plugin._renderChatPassage();
-    }
+    if (passage) await this.plugin.consumeChatPassages(passages);
     if (moved) return;
     const shown = opensNew
       ? await this.plugin.showNewConversation(client, threadId)
@@ -3816,6 +3895,30 @@ class SeminarModal extends obsidian.Modal {
 // Main Plugin Class
 // ═══════════════════════════════════════════════
 class ClowderAtlasPlugin extends obsidian.Plugin {
+  get chatPassages() { return this.settings?.chatPassages || []; }
+  set chatPassages(input) { this.settings.chatPassages = normalizePassages(input); }
+  get chatPassage() { return this.chatPassages[0] || null; }
+  set chatPassage(input) { this.chatPassages = input; }
+
+  async setChatPassages(input) {
+    this.chatPassages = input;
+    this._renderChatPassage();
+    await this.saveSettings();
+  }
+
+  async consumeChatPassages(sent) {
+    // Selections added while a request was in flight belong to the next message.
+    await this.setChatPassages(this.chatPassages.filter(p => !sent.includes(p)));
+  }
+
+  async jumpToPassage(p) {
+    const file = this.app.vault.getAbstractFileByPath(p.path);
+    if (!(file instanceof obsidian.TFile)) return new obsidian.Notice('⚠️ 找不到选段源笔记；引用篮仍保留原选段');
+    const leaf = this.app.workspace.getLeaf(false);
+    await leaf.openFile(file, { active: true, eState: { line: p.from.line } });
+    leaf.view?.editor?.setSelection(p.from, p.to);
+    leaf.view?.editor?.scrollIntoView({ from: p.from, to: p.to }, true);
+  }
   async onload() {
     console.log('Clowder Atlas: Loading plugin...');
 
@@ -3992,10 +4095,13 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings.chatPassages = normalizePassages(this.settings.chatPassages);
   }
 
   async saveSettings() {
-    await this.saveData(this.settings);
+    const write = () => this.saveData(this.settings);
+    this._settingsWrite = (this._settingsWrite || Promise.resolve()).then(write, write);
+    await this._settingsWrite;
   }
 
   // ── Global Companion Summon State & Unified Navigation ──
@@ -4043,8 +4149,18 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
       new obsidian.Notice(`⚠️ 选中的内容有 ${text.length} 字，猫咖一条消息放不下，请缩短到 ${PASSAGE_MAX_CHARS} 字以内`);
       return;
     }
-    this.chatPassage = { path: view.file.path, basename: view.file.basename, text,
+    const passage = { path: view.file.path, basename: view.file.basename, text,
       from: { line: from.line, ch: from.ch }, to: { line: to.line, ch: to.ch } };
+    if (this.chatPassages.some(p => samePassage(p, passage))) {
+      await this.openCafeChat({ passage: true });
+      new obsidian.Notice('💡 这段已在选段引用篮里');
+      return;
+    }
+    if (this.chatPassages.reduce((n, p) => n + p.text.length, 0) + text.length > PASSAGE_MAX_CHARS) {
+      new obsidian.Notice('⚠️ 多段选段累计超过 90,000 字，请先移除部分选段后再添加');
+      return;
+    }
+    await this.setChatPassages([...this.chatPassages, passage]);
     await this.openCafeChat({ passage: true });
   }
 
@@ -4069,7 +4185,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
   /** The latest passage request in a conversation — to see where things stand; replies are never matched by this. */
   getRevisionTarget(cafe, threadId) {
     return this._revisionRequests()
-      .filter((t) => t.cafe === cafe && (t.threadId ?? null) === (threadId ?? null))
+      .filter((t) => t.path && t.cafe === cafe && (t.threadId ?? null) === (threadId ?? null))
       .sort((a, b) => b.at - a.at)[0] || null;
   }
 
@@ -4078,11 +4194,37 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     await this.saveSettings();
   }
 
+  async rememberPassageRequest(id, cafe, threadId, input) {
+    const passages = normalizePassages(input).map(p => ({ ...p, from: { ...p.from }, to: { ...p.to } }));
+    const p = passages.length === 1 ? passages[0] : null;
+    const request = { id, cafe, threadId, passages, at: Date.now(), messageIds: [] };
+    if (p) return this.setRevisionTarget({ ...request, path: p.path, original: p.text, from: p.from, to: p.to });
+    this.settings.passageRequests = { ...(this.settings.passageRequests || {}), [id]: request };
+    await this.saveSettings();
+  }
+
+  _requestsForReply(cafe, msg, threadId = msg?.threadId) {
+    const ids = msg?.lifecycle?.kind === 'response' && Array.isArray(msg.lifecycle.inputMessageIds) ? msg.lifecycle.inputMessageIds : [];
+    const requests = [...this._revisionRequests(), ...Object.values(this.settings.passageRequests || {})];
+    return requests.filter(t => t.cafe === cafe
+      && (threadId === undefined || (t.threadId ?? null) === (threadId ?? null))
+      && t.messageIds.some(id => ids.includes(id)));
+  }
+
+  passagesForReply(cafe, msg, threadId) {
+    return this._requestsForReply(cafe, msg, threadId).flatMap(t => t.passages || [{ path: t.path, basename: t.path.split('/').pop().replace(/\.md$/, ''), text: t.original, from: t.from, to: t.to }]);
+  }
+
   /** The cafe stored request `id` as `messageId`: replies answering that message now find this passage. */
   async bindRevisionMessage(id, messageId) {
-    const t = this.getRevisionTargetById(id);
+    const t = this.getRevisionTargetById(id) || this.settings.passageRequests?.[id];
     if (!t || !messageId || t.messageIds.includes(messageId)) return;
-    await this.setRevisionTarget({ ...t, messageIds: [...t.messageIds, messageId] });
+    const bound = { ...t, messageIds: [...t.messageIds, messageId] };
+    if (t.path) await this.setRevisionTarget(bound);
+    else {
+      this.settings.passageRequests = { ...this.settings.passageRequests, [id]: bound };
+      await this.saveSettings();
+    }
     this._renderChatMessages();
   }
 
@@ -4090,11 +4232,9 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
    * The passage request a cat's reply answers: the only one whose message the reply names. A reply that names none of
    * them, or several (the cafe answered more than one message at once), is not matched: its 修改稿 stays copy-only.
    */
-  revisionTargetForReply(cafe, msg) {
-    const answered = msg?.lifecycle?.kind === 'response' && Array.isArray(msg.lifecycle.inputMessageIds) ? msg.lifecycle.inputMessageIds : [];
-    const hits = answered.length
-      ? this._revisionRequests().filter((t) => t.cafe === cafe && t.messageIds.some((m) => answered.includes(m)))
-      : [];
+  revisionTargetForReply(cafe, msg, threadId) {
+    const hits = this._requestsForReply(cafe, msg, threadId);
+    if (hits.length === 1 && !hits[0].path) return { target: null, reason: 'multi' };
     return hits.length === 1 ? { target: hits[0] } : { target: null, reason: hits.length > 1 ? 'several' : 'unknown' };
   }
 
@@ -4120,7 +4260,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
    */
   async applyRevision(request, revised) {
     const target = this.getRevisionTargetById(request?.id);  // as it stands now, not as it was when the check opened
-    if (!target) return { ok: false, reason: '这份修改稿对应的选段记录已不存在' };
+    if (!target?.path) return { ok: false, reason: '这份修改稿没有可替换的单选段记录' };
     const file = this.app.vault.getAbstractFileByPath(target.path);
     if (!(file instanceof obsidian.TFile)) return { ok: false, reason: `找不到笔记「${target.path}」` };
     const editor = this._editorFor(file);
@@ -4241,7 +4381,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
    * Save a cat's chat/seminar message as a pending L1 Atlas note in <atlasDir>/pending.
    * Spec §2.3 (memory_status): only a person may mark it crystallized — the lens「点亮结晶」, which also moves it to crystals.
    */
-  async saveMessageAsPendingNote(msg, catData, threadId) {
+  async saveMessageAsPendingNote(msg, catData, threadId, cafe = this.cafeClient?.baseUrl) {
     const uuid = this._generateUUID();
     const now = this._localDate();
     const dir = this.settings.atlasDir + '/pending';
@@ -4252,10 +4392,12 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     const profile = SpecParser.resolveCatProfile(catData || msg.catId || '');
     const catName = catData?.nickname || profile?.nickname || catData?.name || msg.catId || 'ClowderCat';
     const activeFile = this.app.workspace.getActiveFile();
+    const sources = passagesUniqueNotes(this.passagesForReply(cafe, msg, threadId));
     const rawText = (msg.content || '').trim();
     const firstHeadingMatch = rawText.match(/^#+\s*(.+)$/m);
     const shortTitle = firstHeadingMatch
       ? firstHeadingMatch[1].replace(/[\\/:*?"<>|]/g, '').slice(0, 24).trim()
+      : sources.length ? `${sources[0].basename}${sources.length > 1 ? `等${sources.length}篇-交叉研讨` : '-研讨要点'}`
       : (activeFile ? `${activeFile.basename}-研讨要点` : `猫咖研讨要点-${now}`);
     // A message that opens with the heading used as the title would otherwise repeat it under the note's own heading.
     const bodyText = firstHeadingMatch && rawText.startsWith(firstHeadingMatch[0]) && firstHeadingMatch[1].trim() === shortTitle
@@ -4263,18 +4405,22 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
       : rawText;
 
     const safeFileName = `${dir}/${shortTitle}-${uuid.slice(0, 6)}.md`;
-    const relatedList = activeFile ? `["[[${activeFile.basename}]]"]` : '[]';
+    // Only this request's sources, never a union of everything discussed in the thread. Unknown response provenance
+    // stays unknown. Legacy messages without response metadata retain the explicit "current note" association.
+    const links = sources.length ? sources.map(p => `[[${p.path.replace(/\.md$/, '')}]]`)
+      : msg.lifecycle?.kind !== 'response' && activeFile ? [`[[${activeFile.basename}]]`] : [];
+    const relatedList = JSON.stringify(links);
 
     const noteContent = [
       '---',
       'atlas_version: v1',
       `atlas_id: "${uuid}"`,
       `memory_type: ${this.settings.defaultMemoryType || 'semantic'}`,
-      `title: "${shortTitle}"`,
+      `title: ${JSON.stringify(shortTitle)}`,
       'memory_status: pending',
-      `atlas_authors: ["${catName}"]`,
+      `atlas_authors: ${JSON.stringify([catName])}`,
       'atlas_source: clowder_ai',
-      `atlas_source_ref: "${threadId || 'cafe-chat'}"`,
+      `atlas_source_ref: ${JSON.stringify(threadId || 'cafe-chat')}`,
       `related: ${relatedList}`,
       'tags: [agent-memory, cat-seminar]',
       `created: "${now}"`,
@@ -4283,7 +4429,8 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
       '',
       `# ${shortTitle}`,
       '',
-      `> 🐾 由 **${catName}** 在猫咖研讨中提出，待审阅后点亮结晶${activeFile ? ` · 关联笔记：[[${activeFile.basename}]]` : ''}`,
+      `> 🐾 由 **${catName}** 在猫咖研讨中提出，待审阅后点亮结晶`,
+      ...(links.length ? ['', '> [!abstract] 来源上下文', `> - **交叉引用笔记**：${links.join('、')}`] : []),
       '',
       bodyText,
       '',
@@ -4497,7 +4644,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     this._openingConversation = true;
     const client = this.cafeClient;
     try {
-      const passage = this.chatPassage;
+      const passage = this.chatPassages.length ? this.chatPassages : null;
       const noteName = passage ? '' : (this.app.workspace.getActiveFile()?.basename || '');
       const temporaryTitle = threadTitle('💬 新对话', { passage, noteName });
       const thread = await client.createThread({ temporaryTitle, projectPath: this.app.vault.adapter.basePath || '', idempotencyKey: crypto.randomUUID() });
@@ -4506,7 +4653,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
         new obsidian.Notice(`💬 新对话「${title}」建在原来连接的猫咖（${client.baseUrl}）里；猫咖连接已经换了，对话栏没有切过去`);
         return;
       }
-      new obsidian.Notice(`💬 已新开对话「${title}」${passage ? '，选段跟过来了' : ''}`);
+      new obsidian.Notice(`💬 已新开对话「${title}」${passage ? passage.length > 1 ? `，${passage.length} 段选段跟过来了` : '，选段跟过来了' : ''}`);
     } catch (err) {
       new obsidian.Notice(`⚠️ 新对话没有建成：${err.message || '未知错误'}`);
     } finally {

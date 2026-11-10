@@ -1,3 +1,11 @@
+# 0.0.6 — cross-file passage research
+
+- Collect multiple selections across notes, with numbered source chips, exact-selection deduplication, jump/remove/clear controls and a persistent unsent tray.
+- Send cross-referenced questions or start a seminar using comparison, evidence, synthesis and debate presets. New conversations keep the entire tray.
+- Multi-passage revisions are copy-only. Single-passage revision checks and editor undo remain available.
+- Failed sends retain all selections. Pending notes link the sources of the request a reply answers, using full relative paths to distinguish identical filenames; unrelated active notes and other requests are excluded.
+- No new dependencies or network endpoints. Selected excerpts and relative source paths are sent to the configured Cat Cafe; the tray and source snapshots are stored locally. See PRIVACY.md.
+
 # 0.0.5 — a new conversation from the chat
 
 - **＋** in the chat header (or the command **New Cat Cafe Conversation**) opens a conversation of its own in the Cat Cafe and turns the chat to it. Before, only a seminar could open one, so after a seminar on one note, a passage of another note could only be discussed in that seminar's conversation.

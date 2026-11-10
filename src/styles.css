@@ -2397,3 +2397,14 @@ body.theme-dark {
 .atlas-revision-modal .atlas-revision-text.is-revised { border-color: var(--interactive-accent); }
 .atlas-revision-modal .atlas-revision-problem { color: var(--text-error, #d0574f); }
 .atlas-revision-modal .atlas-revision-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+/* Multi-passage tray: source chips scroll within the sidebar, never widen it. */
+.atlas-cafe-chat .atlas-chat-passage.is-multi { flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; max-width: 100%; overflow: hidden; }
+.atlas-chat-passage-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.atlas-chat-passage-chips { display: flex; gap: 6px; overflow-x: auto; max-width: 100%; min-width: 0; padding-bottom: 3px; }
+.atlas-chat-passage-chip { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; max-width: 230px; min-width: 0; padding: 2px 6px; border: 1px solid var(--atlas-border-card); border-radius: 999px; background: var(--atlas-bg-card); font-size: 11.5px; }
+.atlas-chat-passage-chip-idx { flex-shrink: 0; color: var(--atlas-accent-primary); font-weight: 700; }
+.atlas-cafe-chat button.atlas-chat-passage-chip-jump { min-width: 0; min-height: 20px; padding: 0 2px; border: 0; background: transparent; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.atlas-cafe-chat button.atlas-chat-passage-chip-rm { flex-shrink: 0; min-width: 20px; min-height: 20px; padding: 0 3px; border: 0; background: transparent; }
+.atlas-seminar-passage-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.atlas-seminar-passage-chip { max-width: 100%; overflow-wrap: anywhere; padding: 3px 8px; border: 1px solid var(--atlas-border-card); border-radius: 12px; font-size: 11.5px; }

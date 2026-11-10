@@ -26,7 +26,7 @@ const message = h.passageMessage(plugin.chatPassages, '对照二者');
 assert.ok(message.includes('[#1') && message.includes('[#2') && message.includes('A原文') && message.includes('B原文'));
 assert.ok(message.includes('a/同名.md') && message.includes('b/同名.md'), 'same names keep distinct source paths');
 assert.ok(!message.includes('放进一个'), 'multi-source synthesis must not promise automatic replacement');
-assert.match(h.threadTitle('💬 新对话', { passage: plugin.chatPassages }), /2 篇（2 段）/);
+assert.match(h.threadTitle('新对话', { passage: plugin.chatPassages }), /2 篇（2 段）/);
 const snapshot = [...plugin.chatPassages];
 await attach(p('large.md', 'x'.repeat(90000)));
 assert.equal(plugin.chatPassages.length, 2, 'overflow preserves the original tray');

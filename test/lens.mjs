@@ -18,7 +18,8 @@ assert.equal(banners,0,'rendering table cells must not inject Atlas UI into note
 
 const h=Plugin.lens;
 assert.equal(h.preview('> [!abstract]+ 来源\n> **重点** / __结论__ / *斜体* / _说明_ / [[A/目标.md#小节|别名]]'), '来源\n重点 / 结论 / 斜体 / 说明 / 「别名」');
-assert.equal(h.preview('[[A/目标#小节]] [[#本地小节]] `__init__` ``a * b`` user_id <img src=x>'), '「目标」 「本地小节」 __init__ a * b user_id <img src=x>', 'display formatting preserves literal code, identifiers and text-only content');
+assert.equal(h.preview('[[A/目标#小节]] [[#本地小节]] `__init__` ``a * b`` user_id <img src=x>'), '「目标 › 小节」 「本地小节」 __init__ a * b user_id <img src=x>', 'display formatting preserves literal code, identifiers and text-only content');
+assert.equal(h.preview('\\*字面星号\\* 与 \\_下划线\\_ 与 [[笔记#^块]] 与 `a\\*b`'), '*字面星号* 与 _下划线_ 与 「笔记」 与 a\\*b', 'escaped markers stay literal, block references show the note, code keeps its backslashes');
 assert.equal(h.preview('2 * a * b，_ 强调 _，user_id'), '2 * a * b，_ 强调 _，user_id', 'spaced mathematical operators are not Markdown emphasis');
 const text='---\nsecret: DO-NOT-EXCERPT\n---\n# 标题\n\n第一段正文。\n第二行。\n\n末段。';
 const excerpt=h.excerpt(target,text);

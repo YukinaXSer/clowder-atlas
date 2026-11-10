@@ -3,7 +3,8 @@
 - Keep Markdown bodies, Live Preview tables and reading views free of Atlas-injected badges or luminance styling.
 - Replace the sidebar metadata dashboard with actual incoming link paragraphs and outgoing source excerpts. Jump to their source positions or add them to the persistent multi-passage tray without leaving the Lens.
 - Show derived pending/crystallized insights and conversations backed by exact local request records on the current Cafe. Newly saved insights record the source Cafe address; unknown older origins are not guessed from titles.
-- Add note questions, seminars, exact-note star-chart location and explicit pending-note crystallization. Fold memory-type and pinned-star controls into the footer.
+- Add note questions, seminars, exact-note star-chart location and explicit pending-note crystallization. The note's properties (state, memory type, luminance and the pinned star, co-authors, last update, source records) sit at the top of the Lens, readable and editable at a glance.
+- Plain-text labels and Obsidian's own line icons replace every emoji in the plugin (menus, commands, status bar, notices, chat and dialogs); a release check rejects emoji in the plugin source. Surfaces follow Obsidian's neutral sidebar colours with one restrained accent. New temporary conversation titles read `研讨会 · …` and `新对话 · …`; new pending notes and excerpts no longer start with an emoji (existing notes are not changed).
 - Add explicit local trial staging and rollback commands. Only the three plugin binaries are backed up/restored; settings and notes are preserved. Operator trial and explicit approval precede merging, tagging and release publication.
 
 # 0.0.6 — cross-file passage research

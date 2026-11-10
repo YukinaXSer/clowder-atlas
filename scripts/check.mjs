@@ -32,6 +32,12 @@ assert(!/(?:\/Users\/|\/var\/folders\/|gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9]
 assert(!/\b(?:eval\s*\(|new\s+Function\s*\(|import\s*\(|innerHTML\s*=|outerHTML\s*=)/.test(src), 'dynamic code or raw HTML sink requires review');
 const imports = [...src.matchAll(/\brequire\(['"]([^'"]+)['"]\)/g)].map(m => m[1]);
 assert.deepEqual([...new Set(imports)], ['obsidian']);
+// Zero-emoji UI: icons are Obsidian's own line icons (setIcon), labels are plain text. Comments are held to it too.
+const decorative = /[\p{Extended_Pictographic}\u{FE0F}\u{20E3}★☆◆◇✦✧✓✔✗✘✕＋↻↩↗↖←⬆⬇]/u;
+for (const name of ['src/main.js', 'src/styles.css']) {
+  const hits = (await read(name)).split('\n').flatMap((line, i) => decorative.test(line) ? [`${name}:${i + 1}: ${line.trim().slice(0, 80)}`] : []);
+  assert.deepEqual(hits, [], `emoji or decorative symbols in the plugin UI:\n${hits.join('\n')}`);
+}
 const host = { Plugin: class {}, ItemView: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {} };
 const sandbox = { module: { exports: {} }, require: name => { assert.equal(name, 'obsidian'); return host; }, URL, Set, Map, console, setTimeout, clearTimeout, setInterval, clearInterval };
 vm.runInNewContext(src + '\nmodule.exports.__defaults = DEFAULT_SETTINGS;', sandbox);

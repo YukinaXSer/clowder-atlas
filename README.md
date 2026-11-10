@@ -13,8 +13,8 @@ Clowder Atlas works without an AI service for local exploration and curation. Ch
 - **Memory star chart:** explore all Markdown notes and their local link relationships, with memory type filters and brightness based on incoming links.
 - **Provenance Lens:** inspect note metadata, sources, related notes, memory type, and draft/pending/crystallized status.
 - **Local curation:** add memory metadata, create templates, review pending insights, and export Atlas notes to a new Obsidian Canvas.
-- **Optional companions:** read and discuss notes in a chat sidebar (**＋** opens a new conversation), organize a multi-cat seminar in a new conversation (named for it) or an existing one, and save useful replies as pending notes or append them to a note.
-- **Selected passages:** select text in the editor and choose **🐾 把选中段落交给猫猫**, or run **Clowder Atlas: Ask Cats About Selection**. Tell the cats whether you want discussion or a rewrite. A reply containing a revision can be compared with the original and applied after confirmation.
+- **Optional companions:** read and discuss notes in a chat sidebar (**+** opens a new conversation), organize a multi-cat seminar in a new conversation (named for it) or an existing one, and save useful replies as pending notes or append them to a note.
+- **Selected passages:** select text in the editor and choose **把选中段落交给猫猫**, or run **Clowder Atlas: Ask Cats About Selection**. Tell the cats whether you want discussion or a rewrite. A reply containing a revision can be compared with the original and applied after confirmation.
 
 ![Provenance Lens showing a synthetic pending insight and its related notes.](images/provenance-lens.png)
 
@@ -33,15 +33,15 @@ This release supports **desktop Obsidian 1.14.5 or newer**. Version 1.14.5 is th
 1. The star chart and Provenance Lens open when the plugin is enabled. Existing Markdown notes can be explored immediately.
 2. To curate a note, open it in the Lens and choose **✨ 赋予这篇笔记记忆身份**, or use a memory template command. Changes to metadata are explicit actions.
 3. A pending note can be reviewed and crystallized. Notes in `_atlas/pending/` move to `_atlas/crystals/` when crystallized; notes elsewhere stay in their own folders.
-4. To use companions, open **💬 对话** and choose **🔌 一键连接猫咖**, or **⚙️ 填写地址**. Clowder AI must already be running. Connection settings and a roster refresh are available inside the chat panel's **⚙**.
+4. To use companions, open **对话** and choose **一键连接猫咖**, or **填写地址**. Clowder AI must already be running. Connection settings and a roster refresh are available inside the chat panel's settings (gear) button.
 
 The default API address is `http://localhost:3004`. The connection is disabled until you enable it. Local note exploration does not require a Clowder AI account. Companion use depends on that instance's configuration, model accounts, and any provider charges.
 
 ## Cross-file passage research
 
-Select text in a note and choose **🐾 把选中段落交给猫猫**, then do the same in other notes. Selections accumulate in a numbered tray; selecting the same text at the same location again does not duplicate it. Click a source chip to return to its note, remove individual selections, or clear the tray. Unsent selections survive plugin reloads and have no automatic expiry. The combined selection limit is 90,000 characters; the final message including your question and source labels must also fit the Cat Cafe limit.
+Select text in a note and choose **把选中段落交给猫猫**, then do the same in other notes. Selections accumulate in a numbered tray; selecting the same text at the same location again does not duplicate it. Click a source chip to return to its note, remove individual selections, or clear the tray. Unsent selections survive plugin reloads and have no automatic expiry. The combined selection limit is 90,000 characters; the final message including your question and source labels must also fit the Cat Cafe limit.
 
-Send a question referring to **#1**, **#2**, etc., or open **研讨会** for comparison, evidence-chain analysis, synthesis, or debate. **＋** carries the entire tray into a new conversation. While selections are attached, the whole-note attachment is excluded.
+Send a question referring to **#1**, **#2**, etc., or open **研讨会** for comparison, evidence-chain analysis, synthesis, or debate. **+** carries the entire tray into a new conversation. While selections are attached, the whole-note attachment is excluded.
 
 A revision answering a multi-passage request is **copy-only**. A single-passage request retains the comparison and replacement flow below. Saving a matched reply as a pending note links the source notes of that request, with full vault-relative paths to distinguish identical filenames; it does not combine sources from unrelated requests in the same conversation. If the Cat Cafe does not identify the input message a reply answers, the plugin cannot infer those sources. Failed sends retain every selection for retry or restoration.
 
@@ -49,7 +49,7 @@ A revision answering a multi-passage request is **copy-only**. A single-passage 
 
 Select a passage in an **editing view**, attach it with the single menu action, and write your request. With a passage attached, the message contains that passage rather than a note preview. Empty requests ask the cats for their thoughts and an optional revision.
 
-Revisions must be returned in a fenced block labelled `修改稿`. Only replies linked to exactly one stored passage request offer **✏️ 替换原段落**. Other revisions can be copied. The comparison dialog checks the original again when you confirm. An open editor replacement is undoable in that editor; closed-file writes do not provide an editor undo step. If you changed the passage or its location is ambiguous, automatic replacement is refused.
+Revisions must be returned in a fenced block labelled `修改稿`. Only replies linked to exactly one stored passage request offer **替换原段落**. Other revisions can be copied. The comparison dialog checks the original again when you confirm. An open editor replacement is undoable in that editor; closed-file writes do not provide an editor undo step. If you changed the passage or its location is ambiguous, automatic replacement is refused.
 
 Different cats' versions for the same request can be swapped. A later follow-up without an attached passage does not automatically inherit a revision target: select the text again for another editable request.
 

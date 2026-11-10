@@ -616,7 +616,27 @@ class SpecParser {
 // ═══════════════════════════════════════════════
 // Provenance Lens View
 // ═══════════════════════════════════════════════
-// Exact source paragraphs: previewing a card and collecting it use the same text and positions.
+// A plain-text display summary only. Source collection/navigation keep the untouched passage below.
+function formatLensSnippetPreview(rawText) {
+  return rawText.split('\n').map(line => line
+    .replace(/^\s*(?:>\s*)+\[![^\]]+\][+-]?\s*/, '')
+    .replace(/^\s*(?:>\s*)+/, '')
+    .split(/(`+[^`\n]*`+)/g).map((part, i) => i % 2
+      ? part.replace(/^(`+)([\s\S]*?)\1$/, '$2')
+      : part.replace(/!?\[\[([^\]\n]+)\]\]/g, (_, link) => {
+        const [target, alias] = link.split('|');
+        const label = alias?.trim() || target.split('#')[0].trim().split('/').pop().replace(/\.md$/i, '') || target.split('#')[1];
+        return `「${label}」`;
+      })
+        .replace(/\*\*(?!\s)([^*\n]*?\S)\*\*/g, '$1')
+        .replace(/(^|[^\p{L}\p{N}_])__(?!\s)([^_\n]*?\S)__(?![\p{L}\p{N}_])/gu, '$1$2')
+        .replace(/(^|[^\p{L}\p{N}*])\*(?!\s)([^*\n]*?\S)\*(?![\p{L}\p{N}*])/gu, '$1$2')
+        .replace(/(^|[^\p{L}\p{N}_])_(?!\s)([^_\n]*?\S)_(?![\p{L}\p{N}_])/gu, '$1$2')
+    ).join('')
+  ).join('\n');
+}
+
+// Exact source paragraphs: collection and navigation use the same raw text and positions.
 function lensExcerpt(file, content, line = null) {
   const lines = content.split('\n');
   let body = 0;
@@ -856,13 +876,15 @@ class ProvenanceLensView extends obsidian.ItemView {
   async _renderCard(parent, entry, generation, inbound) {
     const card = parent.createDiv('atlas-lens-link-card');
     card.dataset.path = entry.path;
-    const top = card.createDiv('atlas-lens-card-top');
+    const meta = card.createDiv('atlas-lens-card-meta');
+    const top = meta.createDiv('atlas-lens-card-top');
     const open = this._button(top, `${inbound ? '←' : '↗'} ${entry.file?.basename || entry.path}`, () => {
       return entry.passage ? this.plugin.jumpToPassage(entry.passage) : this.app.workspace.openLinkText(entry.file.path, this.currentFile.path);
     }, 'atlas-lens-card-title');
     open.disabled = !entry.file;
-    card.createDiv({ text: entry.path, cls: 'atlas-lens-card-path' });
-    const kind = card.createDiv({ text: entry.kind, cls: 'atlas-lens-card-kind' });
+    meta.createDiv({ text: entry.path, cls: 'atlas-lens-card-path' });
+    const kind = meta.createDiv('atlas-lens-card-kind');
+    kind.createEl('span', { text: entry.kind, cls: 'atlas-lens-kind-badge' });
     if (!entry.file) { card.createEl('p', { text: '源笔记尚未创建', cls: 'atlas-empty-hint' }); return; }
     if (entry.file.extension !== 'md') { card.createEl('p', { text: '附件 · 可打开查看，不摘取原句。', cls: 'atlas-empty-hint' }); return; }
     try {
@@ -871,8 +893,10 @@ class ProvenanceLensView extends obsidian.ItemView {
       entry.passage = inbound && entry.line == null ? null : lensExcerpt(entry.file, content, inbound ? entry.line : null);
       if (!entry.passage) { card.createEl('p', { text: '暂无可摘取的正文；打开笔记查看。', cls: 'atlas-empty-hint' }); return; }
       const passage = entry.passage;
-      kind.setText(`${entry.kind} · ${passageLines(passage)}`);
-      card.createEl('p', { text: passage.text, cls: 'atlas-lens-snippet', attr: { title: passage.text } });
+      kind.createEl('span', { text: passageLines(passage), cls: 'atlas-lens-line' });
+      const preview = formatLensSnippetPreview(passage.text);
+      const snippet = card.createEl('p', { cls: 'atlas-lens-snippet', attr: { title: preview, 'aria-label': '文档原句' } });
+      snippet.createEl('span', { text: preview, cls: 'atlas-lens-snippet-text' });
       const index = this.plugin.chatPassages.findIndex(p => samePassage(p, passage));
       const collect = this._button(top, index < 0 ? '＋ 引用篮' : `✓ #${index + 1}`, async () => {
         const fresh = await this.app.vault.read(entry.file);
@@ -3498,6 +3522,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
   }
   async onload() {
     console.log('Clowder Atlas: Loading plugin...');
+    this._purgeLegacyDocumentDecorations();
 
     await this.loadSettings();
     this.summonedCatIds = new Set(this.settings.summonedCats || []);
@@ -3636,6 +3661,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
     // Auto-open on layout ready — Star Chart + Provenance Lens
     this.app.workspace.onLayoutReady(() => {
+      this._purgeLegacyDocumentDecorations();
       this.updateStatusBar();
       // The cat playground was folded into the companion strip (0.8.3); close its tabs left in saved layouts.
       for (const leaf of this.app.workspace.getLeavesOfType('clowder-atlas-cat-playground')) leaf.detach();
@@ -3658,11 +3684,23 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
   }
 
   onunload() {
+    this._purgeLegacyDocumentDecorations();
     if (this.cafeClient) {
       this.cafeClient.destroy();
       this.cafeClient = null;
     }
     console.log('Clowder Atlas: Plugin unloaded');
+  }
+
+  _purgeLegacyDocumentDecorations() {
+    // Only old document decorations, including Markdown leaves in other app windows.
+    // Load handles plugin toggles; layout-ready handles restored notes; unload finishes teardown.
+    const classes = Object.values(LUMINANCE_STATES).map(state => state.cssClass);
+    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+      const root = leaf.view.containerEl;
+      root.querySelectorAll('.atlas-reading-banner').forEach(el => el.remove());
+      root.querySelectorAll(classes.map(cls => `.${cls}`).join(',')).forEach(el => el.classList.remove(...classes));
+    }
   }
 
   async loadSettings() {

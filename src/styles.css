@@ -2349,18 +2349,21 @@ body.theme-dark {
 .atlas-seminar-passage-chip { max-width: 100%; overflow-wrap: anywhere; padding: 3px 8px; border: 1px solid var(--atlas-border-card); border-radius: 12px; font-size: 11.5px; }
 
 /* Lens v2: actual research material, confined to the sidebar. */
-.atlas-lens-v2 { overflow-x: hidden; }
+/* Hide 0.0.6 document residue as soon as this stylesheet is active, even before its JS is reloaded. */
+.atlas-reading-banner { display: none !important; }
+.atlas-lens-v2 { overflow-x: hidden; padding: 12px 0 24px; background: var(--atlas-bg-panel); border-left: 1px solid var(--atlas-border-card); }
+.atlas-lens-v2 > .atlas-topbar { margin: 0 14px 12px; flex-wrap: wrap; }
 .atlas-lens-v2 [hidden] { display: none !important; }
-.atlas-lens-v2 .atlas-lens-hero { padding: 22px 18px 16px; border-bottom: 1px solid var(--background-modifier-border); }
-.atlas-lens-eyebrow { font-size: 11px; color: var(--text-muted); letter-spacing: .12em; margin-bottom: 8px; }
+.atlas-lens-v2 .atlas-lens-hero { margin: 0 14px 12px; padding: 14px 16px; border-radius: var(--atlas-radius); background: var(--atlas-bg-card); border: 1px solid var(--atlas-border-card); box-shadow: var(--atlas-shadow-card); }
+.atlas-lens-eyebrow { font-size: 11px; color: var(--atlas-accent-primary); letter-spacing: .12em; margin-bottom: 8px; }
 .atlas-lens-hero h3 { margin: 0 0 8px; font-size: 21px; line-height: 1.4; overflow-wrap: anywhere; }
-.atlas-lens-state { display: inline-block; color: var(--text-muted); font-size: 11px; padding: 4px 8px; background: var(--background-secondary); border-radius: 6px; margin-top: 8px; }
+.atlas-lens-state { display: inline-block; color: var(--atlas-accent-primary); font-size: 11px; padding: 4px 8px; background: var(--atlas-bg-pill); border: 1px solid var(--atlas-border-card); border-radius: var(--atlas-radius-pill); margin-top: 8px; }
 .atlas-lens-v2 .atlas-header-path { overflow-wrap: anywhere; }
 .atlas-lens-action-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; }
 .atlas-lens-action-bar button { font-size: 12px; flex: 1 1 auto; min-width: 0; }
 .atlas-lens-review { margin: 16px; padding: 14px; border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-secondary); }
 .atlas-lens-review p { color: var(--text-muted); font-size: 12px; }
-.atlas-lens-materials { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 16px 18px; color: var(--text-muted); font-size: 11px; }
+.atlas-lens-materials { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 0 14px 12px; padding: 9px 12px; border-radius: var(--atlas-radius-sm); background: var(--atlas-bg-pill); border: 1px solid var(--atlas-border-card); color: var(--atlas-text-body); font-size: 11px; }
 .atlas-lens-materials button { box-shadow: none; background: transparent; color: var(--text-accent); padding: 0; font-size: 12px; }
 .atlas-lens-v2 .atlas-lens-section { margin: 0; padding: 14px 18px; border: 0; border-top: 1px solid var(--background-modifier-border); border-radius: 0; background: none; box-shadow: none; }
 .atlas-lens-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -2368,13 +2371,17 @@ body.theme-dark {
 .atlas-lens-section-heading h5 { margin: 0; }
 .atlas-lens-count { color: var(--text-muted); font-size: 11px; }
 .atlas-lens-card-list { display: grid; gap: 8px; }
-.atlas-lens-link-card { min-width: 0; padding: 12px; border: 1px solid var(--background-modifier-border); border-radius: 8px; background: var(--background-primary); }
+.atlas-lens-link-card { min-width: 0; padding: 12px; border: 1px solid var(--atlas-border-card); border-radius: 8px; background: var(--atlas-bg-card); }
 .atlas-lens-card-top { display: flex; align-items: flex-start; gap: 8px; justify-content: space-between; }
-.atlas-lens-card-title { min-width: 0; height: auto; padding: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; font-weight: 600; background: transparent !important; box-shadow: none !important; }
+.atlas-lens-card-title { min-width: 0; height: auto; padding: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; font-weight: 600; color: var(--atlas-text-title); background: transparent !important; box-shadow: none !important; }
 .atlas-lens-collect { flex-shrink: 0; font-size: 10px; padding: 2px 6px; height: 25px; }
-.atlas-lens-card-path { display: block; font-size: 10px; color: var(--text-muted); overflow-wrap: anywhere; margin: 5px 0; }
-.atlas-lens-card-kind { font-size: 10px; color: var(--text-muted); margin-top: 7px; }
-.atlas-lens-snippet { font-size: 12px; line-height: 1.7; color: var(--text-muted); margin: 7px 0 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
+.atlas-lens-card-path { display: block; font-family: var(--font-monospace, monospace); font-size: 10px; color: var(--atlas-text-sub); overflow-wrap: anywhere; margin: 5px 0; }
+.atlas-lens-card-kind { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 10.5px; color: var(--atlas-accent-primary); margin-top: 7px; }
+.atlas-lens-kind-badge { padding: 2px 7px; border-radius: var(--atlas-radius-pill); background: var(--atlas-bg-pill); }
+.atlas-lens-line { font-family: var(--font-monospace, monospace); }
+.atlas-lens-snippet { margin: 9px 0 0; padding: 8px 11px; border-radius: 0 6px 6px 0; border-left: 3px solid var(--atlas-accent-primary); background: rgba(0, 0, 0, 0.28); color: var(--atlas-text-body); font-size: 12.5px; line-height: 1.65; overflow-wrap: anywhere; }
+.atlas-lens-snippet-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
+body.theme-light .atlas-lens-snippet { background: rgba(186, 140, 99, 0.08); }
 .atlas-lens-discussion { display: block; text-align: left; height: auto; white-space: normal; overflow-wrap: anywhere; margin: 8px 0; font-size: 12px; width: 100%; }
 .atlas-lens-derived { margin: 8px 0; }
 .atlas-lens-derived button { height: auto; max-width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere; }

@@ -6,7 +6,7 @@ let banners = 0;
 const box = { module: { exports: {} }, require: () => host, console, URL, Set, Map, setTimeout, clearTimeout,
   createDiv: () => ({ createEl() {}, addEventListener() {} }) };
 const source = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
-vm.runInNewContext(source + '\nmodule.exports.lens={ excerpt:typeof lensExcerpt==="function"?lensExcerpt:null, network:typeof lensNetwork==="function"?lensNetwork:null, threads:typeof lensThreads==="function"?lensThreads:null };', box);
+vm.runInNewContext(source + '\nmodule.exports.lens={ excerpt:typeof lensExcerpt==="function"?lensExcerpt:null, network:typeof lensNetwork==="function"?lensNetwork:null, threads:typeof lensThreads==="function"?lensThreads:null, preview:formatLensSnippetPreview };', box);
 const Plugin = box.module.exports, p = new Plugin();
 const file = path => ({ path, basename: path.split('/').pop().replace(/\.md$/, ''), extension: 'md' });
 const target=file('A/同名.md'), other=file('B/同名.md'), inbound=file('研究.md');
@@ -17,6 +17,9 @@ for(const docId of ['table-cell-1','table-cell-2']) p.postProcessMarkdown?.(cell
 assert.equal(banners,0,'rendering table cells must not inject Atlas UI into note content');
 
 const h=Plugin.lens;
+assert.equal(h.preview('> [!abstract]+ 来源\n> **重点** / __结论__ / *斜体* / _说明_ / [[A/目标.md#小节|别名]]'), '来源\n重点 / 结论 / 斜体 / 说明 / 「别名」');
+assert.equal(h.preview('[[A/目标#小节]] [[#本地小节]] `__init__` ``a * b`` user_id <img src=x>'), '「目标」 「本地小节」 __init__ a * b user_id <img src=x>', 'display formatting preserves literal code, identifiers and text-only content');
+assert.equal(h.preview('2 * a * b，_ 强调 _，user_id'), '2 * a * b，_ 强调 _，user_id', 'spaced mathematical operators are not Markdown emphasis');
 const text='---\nsecret: DO-NOT-EXCERPT\n---\n# 标题\n\n第一段正文。\n第二行。\n\n末段。';
 const excerpt=h.excerpt(target,text);
 assert.equal(excerpt.text,'第一段正文。\n第二行。');

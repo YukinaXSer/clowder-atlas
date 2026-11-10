@@ -715,10 +715,19 @@ class ProvenanceLensView extends obsidian.ItemView {
     this.registerEvent(this.app.workspace.on('active-leaf-change', () => this.updateForActiveFile(false)));
     this.registerEvent(this.app.metadataCache.on('changed', file => this._scheduleMetadataRefresh(file)));
     this.registerEvent(this.app.metadataCache.on('resolved', () => this._scheduleMetadataRefresh()));
+    this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+      if (file === this.currentFile || oldPath === this.currentFile?.path) this.refresh();
+      else this._scheduleMetadataRefresh(file);
+    }));
+    this.registerEvent(this.app.vault.on('delete', file => {
+      if (file === this.currentFile || file.path === this.currentFile?.path) this.refresh();
+      else this._scheduleMetadataRefresh(file);
+    }));
     await this.updateForActiveFile();
   }
   async onClose() { this._generation++; clearTimeout(this._refreshTimer); }
-  refresh() { return this.updateForActiveFile(); }
+  onResize() { if (this._needsRefresh) this.updateForActiveFile(false); }
+  refresh() { this._needsRefresh = true; return this.updateForActiveFile(); }
   _networkSignature(network) {
     return JSON.stringify([
       network.incoming.map(e => [e.path, e.kind, e.line]),
@@ -741,15 +750,21 @@ class ProvenanceLensView extends obsidian.ItemView {
     }, 100);
   }
   async updateForActiveFile(force = true) {
-    const file = this.app.workspace.getActiveFile();
+    let file = this.app.workspace.getActiveFile();
+    const viewType = this.app.workspace.activeLeaf?.view?.getViewType?.();
+    if (!file && [VIEW_TYPE_PROVENANCE_LENS, VIEW_TYPE_CAFE_CHAT, VIEW_TYPE_STAR_CHART].includes(viewType)) file = this.currentFile;
+    if (file && !this.app.vault.getAbstractFileByPath(file.path)) file = null;
     const root = this.containerEl.children[1];
     const nextFile = file?.extension === 'md' ? file : null;
     // Sidebar focus is not a new document. Leave its live buttons and reading position in place.
-    if (!force && (nextFile?.path === this.currentFile?.path || (!file && this.currentFile))) return;
+    if (!force && !this._needsRefresh && (nextFile?.path === this.currentFile?.path || (!file && this.currentFile))) return;
+    // A hidden tab reports scrollTop=0. Keep its DOM until it is visible, then consume all queued state changes.
+    if (this.currentFile && !root.getClientRects().length) { this._needsRefresh = true; return; }
     const sameFile = nextFile && nextFile.path === this.currentFile?.path;
     if (sameFile) this._readingState.scrollTop = root.scrollTop;
     else this._readingState = { shown: { incoming: 6, outgoing: 6 }, scrollTop: 0, footerOpen: false };
     const scrollTop = this._readingState.scrollTop;
+    this._needsRefresh = false;
     const generation = ++this._generation;
     root.empty(); root.addClass('atlas-provenance-lens'); root.addClass('atlas-lens-v2');
     this.plugin.renderUnifiedNavBar(root, 'lens');
@@ -3458,7 +3473,7 @@ class SeminarModal extends obsidian.Modal {
 // ═══════════════════════════════════════════════
 class ClowderAtlasPlugin extends obsidian.Plugin {
   get chatPassages() { return this.settings?.chatPassages || []; }
-  set chatPassages(input) { this.settings.chatPassages = normalizePassages(input); }
+  set chatPassages(input) { this.settings.chatPassages = normalizePassages(input); this._refreshLensViews(); }
   get chatPassage() { return this.chatPassages[0] || null; }
   set chatPassage(input) { this.chatPassages = input; }
 
@@ -3730,6 +3745,11 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_CAFE_CHAT)) leaf.view?._renderPassage?.();
   }
 
+  // Domain writes explicitly invalidate the Lens; unrelated settings saves must not redraw its reading state.
+  _refreshLensViews() {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_PROVENANCE_LENS)) leaf.view?.refresh?.();
+  }
+
   /**
    * Passage requests, by request id — { id, cafe, threadId, path, original, from, to, at, messageIds } — kept in data.json.
    * messageIds are the cafe's ids for the message that carried the request (its userMessageId; again after a resend).
@@ -3753,6 +3773,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
   async setRevisionTarget(target) {
     this.settings.revisionTargets = { ...(this.settings.revisionTargets || {}), [target.id]: target };
+    this._refreshLensViews();
     await this.saveSettings();
   }
 
@@ -3762,6 +3783,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     const request = { id, cafe, threadId, passages, at: Date.now(), messageIds: [] };
     if (p) return this.setRevisionTarget({ ...request, path: p.path, original: p.text, from: p.from, to: p.to });
     this.settings.passageRequests = { ...(this.settings.passageRequests || {}), [id]: request };
+    this._refreshLensViews();
     await this.saveSettings();
   }
 
@@ -3785,6 +3807,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     if (t.path) await this.setRevisionTarget(bound);
     else {
       this.settings.passageRequests = { ...this.settings.passageRequests, [id]: bound };
+      this._refreshLensViews();
       await this.saveSettings();
     }
     this._renderChatMessages();

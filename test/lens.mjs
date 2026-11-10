@@ -52,4 +52,22 @@ assert.equal((await h.network(app,other)).incoming.length,0,'same basenames are 
 const client={baseUrl:'http://a',threads:[{id:'a',title:'renamed'},{id:'b',title:'《同名》 unrelated'},{id:'c',title:'other cafe'}]};
 const plugin={cafeClient:client,settings:{revisionTargets:{r:{cafe:'http://a',threadId:'a',path:target.path,messageIds:['u']},failed:{cafe:'http://a',threadId:'b',path:target.path,messageIds:[]}},passageRequests:{x:{cafe:'http://b',threadId:'c',passages:[{path:target.path}],messageIds:['u']}}}};
 assert.deepEqual(Array.from(h.threads(plugin,target),t=>t.id),['a'],'thread association uses path and cafe, not a coincidentally matching title');
+// Exercise every production writer that can change the shared research state, including the legacy tray bridge.
+const q=new Plugin();
+let rendered={trayCount:0,threads:[]};
+q.settings={revisionTargets:{},passageRequests:{}};
+q.cafeClient={baseUrl:'http://a',threads:[{id:'one'},{id:'two'}]};
+q.app={metadataCache:app.metadataCache,workspace:{getLeavesOfType:type=>type==='clowder-atlas-provenance-lens'?[{view:{refresh(){rendered={trayCount:q.chatPassages.length,threads:Array.from(h.threads(q,target),t=>t.id)};}}}]:[]}};
+q.saveData=async()=>{};
+await q.setChatPassages([excerpt]);
+assert.equal(rendered.trayCount,1,'collecting must notify the other view');
+q.chatPassage=null;
+assert.equal(rendered.trayCount,0,'the legacy bridge must also notify the other view');
+await q.rememberPassageRequest('single','http://a','one',[excerpt]);
+assert.deepEqual(rendered.threads,[],'preparing a request does not advertise an undelivered conversation');
+await q.bindRevisionMessage('single','u-one');
+assert.deepEqual(rendered.threads,['one'],'delivering a single-source request updates the Lens');
+await q.rememberPassageRequest('multi','http://a','two',[excerpt,{...excerpt,path:other.path}]);
+await q.bindRevisionMessage('multi','u-two');
+assert.deepEqual(rendered.threads,['one','two'],'delivering a multi-source request updates the Lens');
 console.log('PASS clean Markdown, source excerpts, exact link resolution and cafe-bound discussion provenance');

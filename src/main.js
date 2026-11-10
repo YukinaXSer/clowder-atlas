@@ -23,21 +23,21 @@ const CAT_COLORS = {
   tabby:   { name: '狸花猫/小狸花', breed: '狸花猫', nickname: '小狸花', mention: '@小狸花', color: '#8C9E6E', label: '松针绿', specialty: '敏捷巡检 · 灵感捕手' },
 };
 const LUMINANCE_STATES = {
-  active:  { label: '恒星', icon: '★', cssClass: 'atlas-luminance-active',  hex: '#FFD700' },
-  warm:    { label: '温星', icon: '◆', cssClass: 'atlas-luminance-warm',    hex: '#DEB887' },
-  cool:    { label: '冷星', icon: '◇', cssClass: 'atlas-luminance-cool',    hex: '#A9B7C6' },
+  active:  { label: '恒星', cssClass: 'atlas-luminance-active',  hex: '#FFD700' },
+  warm:    { label: '温星', cssClass: 'atlas-luminance-warm',    hex: '#DEB887' },
+  cool:    { label: '冷星', cssClass: 'atlas-luminance-cool',    hex: '#A9B7C6' },
   dormant: { label: '暗尘', icon: '·', cssClass: 'atlas-luminance-dormant', hex: '#5C6370' },
 };
 const MEMORY_TYPE_COLORS = {
-  semantic:   { label: '语义', hex: '#6C8EBF', icon: '🧠' },
-  episodic:   { label: '情景', hex: '#D4A574', icon: '🕐' },
-  procedural: { label: '程序', hex: '#6AAF6A', icon: '⚙️' },
+  semantic:   { label: '语义', hex: '#6C8EBF' },
+  episodic:   { label: '情景', hex: '#D4A574' },
+  procedural: { label: '程序', hex: '#6AAF6A' },
 };
 const STATUS_LABELS = {
-  draft:        { label: '草稿', icon: '📝' },
-  pending:      { label: '待结晶', icon: '💎' },
-  crystallized: { label: '已结晶', icon: '✨' },
-  dormant:      { label: '休眠', icon: '💤' },
+  draft:        { label: '草稿' },
+  pending:      { label: '待结晶' },
+  crystallized: { label: '已结晶' },
+  dormant:      { label: '休眠' },
 };
 const CAT_SPECIALTIES = {
   opus:  '深度思考 · 系统架构',
@@ -54,8 +54,6 @@ const CAT_SPECIALTIES = {
 const DEFAULT_SETTINGS = {
   atlasDir: ATLAS_DIR_DEFAULT,
   canvasDir: '_atlas/canvases',
-  showRecallBadge: true,
-  enableLuminanceCSS: true,
   enableGraphColors: true,
   catCafeEnabled: false,
   catCafeAddress: 'http://localhost:3004',
@@ -166,10 +164,10 @@ function passageMessage(p, request) {
 function passageShown(p, request) {
   if (Array.isArray(p)) {
     if (p.length === 1) return passageShown(p[0], request);
-    const head = `📌 交叉引用 · ${passagesLabel(p)} · ${p.map((s, i) => `#${i + 1}《${s.basename}》${passageLines(s)}`).join(' · ')}`;
+    const head = `交叉引用 · ${passagesLabel(p)} · ${p.map((s, i) => `#${i + 1}《${s.basename}》${passageLines(s)}`).join(' · ')}`;
     return request ? `${head}\n${request}` : head;
   }
-  const head = `📌 选段 · 《${p.basename}》${passageLines(p)}`;
+  const head = `选段 · 《${p.basename}》${passageLines(p)}`;
   return request ? `${head}\n${request}` : head;
 }
 
@@ -200,9 +198,9 @@ function threadTitle(label, { passage = null, noteName = '', topic = '' } = {}) 
   return about ? `${label} · ${about}` : label;
 }
 
-/** A seminar's own conversation: 🎓 研讨会 · … (see threadTitle). */
+/** A seminar's own conversation: 研讨会 · … (see threadTitle). */
 function seminarThreadTitle(about) {
-  return threadTitle('🎓 研讨会', about);
+  return threadTitle('研讨会', about);
 }
 
 // ═══════════════════════════════════════════════
@@ -333,7 +331,7 @@ class CatCafeClient {
 
   /**
    * Re-read health, cats and threads. One read runs at a time per client: a call made while one is running (the poll
-   * and「↻ 刷新」share this path) gets a fresh read right after it, shared by all calls made in between, so an older
+   * and「刷新」share this path) gets a fresh read right after it, shared by all calls made in between, so an older
    * answer can never land on top of a newer one.
    */
   connect(projectPath) {
@@ -421,6 +419,33 @@ class CatCafeClient {
 }
 
 // ═══════════════════════════════════════════════
+// Icons: Obsidian's own single-colour line icons, never emoji
+// ═══════════════════════════════════════════════
+/** Lucide ids differ across Obsidian versions, so try them in order. False when none rendered (or no host, in tests). */
+function setAtlasIcon(el, ids) {
+  if (typeof obsidian.setIcon !== 'function') return false;
+  for (const id of Array.isArray(ids) ? ids : [ids]) {
+    el.empty();
+    obsidian.setIcon(el, id);
+    if (el.querySelector('svg')) return true;
+  }
+  return false;
+}
+
+/** An icon in front of a label, inside one element; the label stays the element's text for search and screen readers. */
+function addAtlasIcon(el, ids) {
+  const icon = createSpan({ cls: 'atlas-icon', attr: { 'aria-hidden': 'true' } });
+  if (setAtlasIcon(icon, ids)) el.prepend(icon);
+  return el;
+}
+
+/** A cat without a photo shows the first character of its name. */
+function catInitial(cat) {
+  const name = String(cat?.nickname || cat?.displayName || cat?.name || cat?.id || '').trim();
+  return name ? Array.from(name)[0].toUpperCase() : '·';
+}
+
+// ═══════════════════════════════════════════════
 // 3D Avatar Renderer — shared between all views
 // ═══════════════════════════════════════════════
 /**
@@ -450,10 +475,10 @@ function renderCatAvatar3D(parent, cat, client, size) {
     });
     img.addEventListener('error', () => {
       img.remove();
-      inner.createEl('span', { text: '🐾', cls: 'atlas-avatar-emoji' });
+      inner.createEl('span', { text: catInitial(cat), cls: 'atlas-avatar-initial' });
     });
   } else {
-    inner.createEl('span', { text: '🐾', cls: 'atlas-avatar-emoji' });
+    inner.createEl('span', { text: catInitial(cat), cls: 'atlas-avatar-initial' });
   }
 
   // Online status dot (green pulse)
@@ -516,6 +541,7 @@ class SpecParser {
       atlas_authors: SpecParser._toArray(frontmatter.atlas_authors),
       atlas_source: frontmatter.atlas_source || null,
       atlas_source_ref: frontmatter.atlas_source_ref || null,
+      atlas_source_cafe: frontmatter.atlas_source_cafe || null,
       // L1+ structured — filter nulls
       atlas_author_details: SpecParser._cleanObjectArray(frontmatter.atlas_author_details),
       atlas_evidence: SpecParser._cleanObjectArray(frontmatter.atlas_evidence),
@@ -617,761 +643,402 @@ class SpecParser {
 // ═══════════════════════════════════════════════
 // Provenance Lens View
 // ═══════════════════════════════════════════════
+// A plain-text display summary only. Source collection/navigation keep the untouched passage below.
+// Backslash-escaped characters are held in private-use placeholders while emphasis markers go, then come back literally.
+const LENS_ESCAPES = ['\\', '*', '_', '`', '[', ']', '#', '|'];
+function formatLensSnippetPreview(rawText) {
+  const hold = text => text.replace(/\\([\\*_`[\]#|])/g, (_, ch) => String.fromCharCode(0xE000 + LENS_ESCAPES.indexOf(ch)));
+  const release = text => text.replace(/[-]/g, ch => LENS_ESCAPES[ch.charCodeAt(0) - 0xE000]);
+  const linkLabel = link => {
+    const [target, alias] = link.split('|');
+    if (alias?.trim()) return alias.trim();
+    const [path, heading = ''] = target.split('#');
+    const name = path.trim().split('/').pop().replace(/\.md$/i, '');
+    const section = heading.trim().startsWith('^') ? '' : heading.trim();
+    return name && section ? `${name} › ${section}` : name || section;
+  };
+  return rawText.split('\n').map(line => line
+    .replace(/^\s*(?:>\s*)+\[![^\]]+\][+-]?\s*/, '')
+    .replace(/^\s*(?:>\s*)+/, '')
+    .split(/(`+[^`\n]*`+)/g).map((part, i) => i % 2
+      ? part.replace(/^(`+)([\s\S]*?)\1$/, '$2')
+      : release(hold(part)
+        .replace(/!?\[\[([^\]\n]+)\]\]/g, (_, link) => `「${linkLabel(link)}」`)
+        .replace(/\*\*(?!\s)([^*\n]*?\S)\*\*/g, '$1')
+        .replace(/(^|[^\p{L}\p{N}_])__(?!\s)([^_\n]*?\S)__(?![\p{L}\p{N}_])/gu, '$1$2')
+        .replace(/(^|[^\p{L}\p{N}*])\*(?!\s)([^*\n]*?\S)\*(?![\p{L}\p{N}*])/gu, '$1$2')
+        .replace(/(^|[^\p{L}\p{N}_])_(?!\s)([^_\n]*?\S)_(?![\p{L}\p{N}_])/gu, '$1$2'))
+    ).join('')
+  ).join('\n');
+}
+
+// Exact source paragraphs: collection and navigation use the same raw text and positions.
+function lensExcerpt(file, content, line = null) {
+  const lines = content.split('\n');
+  let body = 0;
+  if (lines[0]?.trim() === '---') {
+    const end = lines.findIndex((text, i) => i > 0 && /^---\s*$/.test(text));
+    if (end < 0) return null;
+    body = end + 1;
+  }
+  let first = line;
+  if (first == null) {
+    let fenced = false;
+    first = lines.findIndex((text, i) => {
+      if (i < body) return false;
+      if (/^\s*(`{3,}|~{3,})/.test(text)) { fenced = !fenced; return false; }
+      return !fenced && !!text.trim() && !/^\s*(#|<!--|\|[- :]+\|)/.test(text);
+    });
+  }
+  if (first < body || first < 0 || first >= lines.length || !lines[first].trim()) return null;
+  let last = first;
+  const structured = /^\s*(?:[-*+]\s|\d+[.)]\s|\|)/.test(lines[first]);
+  // Keep headings, tables and callouts at their actual lines; prose includes its paragraph, never the whole note.
+  const boundary = text => !text.trim() || /^\s*(#{1,6}\s|`{3,}|~{3,}|---\s*$)/.test(text);
+  if (!structured) {
+    while (first > body && !boundary(lines[first - 1])) first--;
+    while (last + 1 < lines.length && !boundary(lines[last + 1])) last++;
+  }
+  const text = lines.slice(first, last + 1).join('\n');
+  return { path: file.path, basename: file.basename, text, from: { line: first, ch: 0 }, to: { line: last, ch: lines[last].length } };
+}
+
+async function lensNetwork(app, file) {
+  const cache = app.metadataCache;
+  const resolve = (raw, from) => {
+    const link = SpecParser.parseWikilink(raw);
+    const target = link ? link.target : String(raw || '');
+    return cache.getFirstLinkpathDest(target.split('#')[0], from.path);
+  };
+  const related = from => {
+    const raw = cache.getFileCache(from)?.frontmatter?.related;
+    return Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [];
+  };
+  const incoming = [], outgoing = [], derived = [];
+  for (const [path, targets] of Object.entries(cache.resolvedLinks || {})) {
+    if (path === file.path || !targets[file.path]) continue;
+    const source = app.vault.getAbstractFileByPath(path);
+    if (!source || source.extension !== 'md') continue;
+    const link = (cache.getFileCache(source)?.links || []).find(l => resolve(l.link, source)?.path === file.path);
+    incoming.push({ path, file: source, kind: link ? '正文引用' : '属性关联', line: link?.position?.start?.line ?? null });
+  }
+  const seen = new Set();
+  const add = (raw, kind) => {
+    const dest = resolve(raw, file), path = dest?.path || String(raw);
+    if (seen.has(path) || path === file.path) return;
+    seen.add(path);
+    outgoing.push({ path, file: dest || null, kind });
+  };
+  for (const raw of related(file)) add(raw, '研讨源笔记');
+  for (const link of cache.getFileCache(file)?.links || []) add(link.link, '正文引用');
+  for (const candidate of app.vault.getMarkdownFiles()) {
+    if (candidate.path === file.path) continue;
+    const fm = cache.getFileCache(candidate)?.frontmatter;
+    if (!['pending', 'crystallized'].includes(fm?.memory_status)) continue;
+    if (related(candidate).some(raw => resolve(raw, candidate)?.path === file.path)) {
+      derived.push({ path: candidate.path, file: candidate, status: fm.memory_status, authors: fm.atlas_authors || [] });
+    }
+  }
+  // Reads are lazy, when a card is displayed. Opening a popular note never reads its entire backlink corpus.
+  return { incoming, outgoing, derived };
+}
+
+function lensThreads(plugin, file) {
+  const client = plugin.cafeClient;
+  if (!client) return [];
+  const ids = new Set();
+  for (const request of [...Object.values(plugin.settings.revisionTargets || {}), ...Object.values(plugin.settings.passageRequests || {})]) {
+    if (request?.cafe !== client.baseUrl || !request.messageIds?.length) continue;
+    if (request.path === file.path || request.passages?.some(p => p.path === file.path)) ids.add(request.threadId);
+  }
+  const fm = plugin.app?.metadataCache.getFileCache(file)?.frontmatter;
+  if (fm?.atlas_source === 'clowder_ai' && fm.atlas_source_cafe === client.baseUrl) ids.add(fm.atlas_source_ref);
+  return (client.threads || []).filter(thread => ids.has(thread.id));
+}
+
 class ProvenanceLensView extends obsidian.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
     this.currentFile = null;
-    this.currentNote = null;
+    this._generation = 0;
+    this._dirtyPaths = new Set();
   }
-
   getViewType() { return VIEW_TYPE_PROVENANCE_LENS; }
   getDisplayText() { return 'Provenance Lens'; }
   getIcon() { return 'eye'; }
-
   async onOpen() {
-    const container = this.containerEl.children[1];
-    container.empty();
-    container.addClass('atlas-provenance-lens');
-
-    // Initial state — show welcome
-    this.renderWelcome(container);
-
-    // Listen for active file changes
-    this.registerEvent(
-      this.app.workspace.on('active-leaf-change', () => {
-        this.updateForActiveFile();
-      })
-    );
-    this.registerEvent(
-      this.app.metadataCache.on('changed', (file) => {
-        if (this.currentFile && file.path === this.currentFile.path) {
-          this.updateForActiveFile();
-        }
-      })
-    );
-
-    // Initial update
-    this.updateForActiveFile();
+    this.registerEvent(this.app.workspace.on('active-leaf-change', () => this.updateForActiveFile(false)));
+    this.registerEvent(this.app.metadataCache.on('changed', file => this._scheduleMetadataRefresh(file)));
+    this.registerEvent(this.app.metadataCache.on('resolved', () => this._scheduleMetadataRefresh()));
+    this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+      if (file === this.currentFile || oldPath === this.currentFile?.path) this.refresh();
+      else this._scheduleMetadataRefresh(file);
+    }));
+    this.registerEvent(this.app.vault.on('delete', file => {
+      if (file === this.currentFile || file.path === this.currentFile?.path) this.refresh();
+      else this._scheduleMetadataRefresh(file);
+    }));
+    await this.updateForActiveFile();
   }
-
-  async onClose() {
-    // Cleanup
+  async onClose() { this._generation++; clearTimeout(this._refreshTimer); }
+  onResize() { if (this._needsRefresh) this.updateForActiveFile(false); }
+  refresh() { this._needsRefresh = true; return this.updateForActiveFile(); }
+  _networkSignature(network) {
+    return JSON.stringify([
+      network.incoming.map(e => [e.path, e.kind, e.line]),
+      network.outgoing.map(e => [e.path, e.kind, e.file?.extension]),
+      network.derived.map(e => [e.path, e.status, e.authors])
+    ]);
   }
-
-  refresh() {
-    this.updateForActiveFile();
+  _scheduleMetadataRefresh(file) {
+    if (file) this._dirtyPaths.add(file.path);
+    clearTimeout(this._refreshTimer);
+    this._refreshTimer = setTimeout(async () => {
+      const current = this.currentFile, generation = this._generation;
+      const dirty = [...this._dirtyPaths];
+      this._dirtyPaths.clear();
+      if (!current) return;
+      const network = await lensNetwork(this.app, current);
+      if (generation !== this._generation) return;
+      const paths = new Set([current.path, ...network.incoming.map(e => e.path), ...network.outgoing.map(e => e.path), ...network.derived.map(e => e.path)]);
+      if (dirty.some(path => paths.has(path)) || this._networkSignature(network) !== this._networkKey) await this.refresh();
+    }, 100);
   }
-
-  updateForActiveFile() {
-    const file = this.app.workspace.getActiveFile();
-    if (!file || file.extension !== 'md') {
-      this.currentFile = null;
-      this.currentNote = null;
-      this.renderNoFile();
+  async updateForActiveFile(force = true) {
+    let file = this.app.workspace.getActiveFile();
+    const viewType = this.app.workspace.activeLeaf?.view?.getViewType?.();
+    if (!file && [VIEW_TYPE_PROVENANCE_LENS, VIEW_TYPE_CAFE_CHAT, VIEW_TYPE_STAR_CHART].includes(viewType)) file = this.currentFile;
+    if (file && !this.app.vault.getAbstractFileByPath(file.path)) file = null;
+    const root = this.containerEl.children[1];
+    const nextFile = file?.extension === 'md' ? file : null;
+    // Sidebar focus is not a new document. Leave its live buttons and reading position in place.
+    if (!force && !this._needsRefresh && (nextFile?.path === this.currentFile?.path || (!file && this.currentFile))) return;
+    // A hidden tab reports scrollTop=0. Keep its DOM until it is visible, then consume all queued state changes.
+    if (this.currentFile && !root.getClientRects().length) { this._needsRefresh = true; return; }
+    const sameFile = nextFile && nextFile.path === this.currentFile?.path;
+    if (sameFile) this._readingState.scrollTop = root.scrollTop;
+    else this._readingState = { shown: { incoming: 6, outgoing: 6 }, scrollTop: 0, sourcesOpen: false };
+    const scrollTop = this._readingState.scrollTop;
+    this._needsRefresh = false;
+    const generation = ++this._generation;
+    root.empty(); root.addClass('atlas-provenance-lens'); root.addClass('atlas-lens-v2');
+    this.plugin.renderUnifiedNavBar(root, 'lens');
+    this.currentFile = nextFile;
+    if (!this.currentFile) {
+      const welcome = root.createDiv('atlas-lens-welcome');
+      welcome.createEl('h3', { text: '从一篇笔记开始' });
+      welcome.createEl('p', { text: '打开笔记，查看引用原句、收集研究材料，或回到相关研讨。' });
+      this._button(welcome, '打开记忆星图', () => this.plugin.openStarChart());
       return;
     }
-
-    this.currentFile = file;
-    const cache = this.app.metadataCache.getFileCache(file);
-    const frontmatter = cache?.frontmatter;
-    this.currentNote = SpecParser.parse(frontmatter);
-
-    const container = this.containerEl.children[1];
-    container.empty();
-    container.addClass('atlas-provenance-lens');
-
-    if (!this.currentNote) {
-      this.renderUnindexed(container, file);
-    } else {
-      this.renderNote(container, file, this.currentNote);
+    const note = this.currentNote = SpecParser.parse(this.app.metadataCache.getFileCache(file)?.frontmatter);
+    const hero = root.createDiv('atlas-lens-hero');
+    hero.createEl('h3', { text: note?.title || file.basename });
+    hero.createDiv({ text: file.path, cls: 'atlas-header-path' });
+    const state = note?.memory_status;
+    // The note's properties are read at a glance here, not behind a fold at the bottom.
+    this._renderProperties(hero, file, note);
+    const actions = hero.createDiv('atlas-lens-action-bar');
+    this._button(actions, '问猫猫', () => this.plugin.openCafeChat({ attachFile: file }), 'atlas-lens-action', ['message-square', 'message-circle']);
+    this._button(actions, '本篇研讨', () => this.plugin.openSeminarModal({ file, attachNote: true }), 'atlas-lens-action', ['users']);
+    this._button(actions, '星图定位', () => this.plugin.openStarChart({ focusPath: file.path }), 'atlas-lens-action', ['crosshair', 'locate']);
+    if (state === 'pending') {
+      const review = root.createDiv('atlas-lens-review');
+      review.createEl('strong', { text: '待审阅结晶卡' });
+      review.createEl('p', { text: note.atlas_authors.length ? `由 ${note.atlas_authors.join('、')} 提炼；先核对下方源笔记，再确认保留。` : '先核对源笔记与内容，再确认保留。' });
+      this._button(review, '确认点亮结晶', () => this._quickUpdateStatus(file, 'crystallized'), 'mod-cta');
     }
-  }
-
-  // The lens is about the note itself; the companion strip and the study pod live in the chat panel only.
-  _renderTopBar(container) {
-    this.plugin.renderUnifiedNavBar(container, 'lens');
-  }
-
-  async _quickEnrollFile(file, memoryType) {
-    const now = this.plugin._localDate();
-    const uuid = this.plugin._generateUUID();
+    const material = root.createDiv('atlas-lens-materials');
+    const trayCount = this.plugin.chatPassages.length;
+    material.createEl('span', { text: trayCount ? `引用篮 · ${trayCount} 段待讨论` : '把关联原句收进引用篮，再一起讨论' });
+    this._button(material, '打开引用篮 →', () => this.plugin.openCafeChat({ passage: true }));
+    const networkEl = root.createDiv('atlas-lens-network');
+    networkEl.createEl('p', { text: '正在读取笔记脉络…', cls: 'atlas-empty-hint' });
+    const discussions = root.createDiv('atlas-lens-discussions');
+    this._renderThreads(discussions, file, note);
     try {
-      await this.app.fileManager.processFrontMatter(file, (fm) => {
-        if (!fm.atlas_version) fm.atlas_version = 'v1';
-        if (!fm.atlas_id) fm.atlas_id = uuid;
-        fm.memory_type = memoryType;
-        if (!fm.memory_status) fm.memory_status = 'draft';
-        if (!fm.atlas_source) fm.atlas_source = 'manual';
-        if (!fm.created) fm.created = now;
-        fm.updated = now;
-      });
-      const typeLabel = MEMORY_TYPE_COLORS[memoryType]?.label || memoryType;
-      new obsidian.Notice(`✨ 已将「${file.basename}」点亮为${typeLabel}记忆`);
-      this.plugin.updateStatusBar();
-    } catch (err) {
-      new obsidian.Notice('⚠️ 无法自动写入 Frontmatter，请检查笔记头部 YAML 格式');
+      const network = await lensNetwork(this.app, file);
+      if (generation !== this._generation) return;
+      this._networkKey = this._networkSignature(network);
+      networkEl.empty();
+      this._renderDerived(discussions, network.derived);
+      if (note?.paper_arxiv && /^\d{4}\.\d{4,5}(v\d+)?$/.test(note.paper_arxiv)) {
+        const section = networkEl.createDiv('atlas-lens-section');
+        section.createEl('a', { text: `论文 · arXiv ${note.paper_arxiv}`, href: `https://arxiv.org/abs/${note.paper_arxiv}`, cls: 'external-link' });
+      }
+      await Promise.all([
+        this._renderCards(networkEl, '引用此篇的笔记', network.incoming, generation, true),
+        this._renderCards(networkEl, '此篇引用的笔记', network.outgoing, generation, false)
+      ]);
+      if (generation === this._generation) root.scrollTop = scrollTop;
+    } catch (error) {
+      if (generation !== this._generation) return;
+      networkEl.empty(); networkEl.createEl('p', { text: '脉络暂未读完，请切回此页重试。', cls: 'atlas-empty-hint' });
+      console.warn('Clowder Atlas: lens links could not be read', error);
     }
   }
-
-  async _quickUpdateStatus(file, newStatus) {
-    const now = this.plugin._localDate();
+  _button(parent, text, run, cls = '', icon = null) {
+    const button = parent.createEl('button', { text, cls });
+    if (icon) addAtlasIcon(button, icon);
+    button.addEventListener('click', async () => {
+      if (button.disabled) return;
+      button.disabled = true;
+      try { await run(); } catch (error) { new obsidian.Notice(`操作未完成：${error.message}`); }
+      finally { button.disabled = false; }
+    });
+    return button;
+  }
+  async _renderCards(parent, title, entries, generation, inbound) {
+    const section = parent.createDiv('atlas-lens-section');
+    const heading = section.createDiv('atlas-lens-section-heading');
+    heading.createEl('h5', { text: title });
+    heading.createEl('span', { text: String(entries.length), cls: 'atlas-lens-count' });
+    if (!entries.length) { section.createEl('p', { text: inbound ? '还没有笔记引用此篇。' : '还没有源笔记链接。', cls: 'atlas-empty-hint' }); return; }
+    const state = this._readingState, key = inbound ? 'incoming' : 'outgoing';
+    let shown = Math.min(state.shown[key], entries.length);
+    const list = section.createDiv('atlas-lens-card-list');
+    const more = this._button(section, '显示更多', async () => {
+      const root = this.containerEl.children[1], scrollTop = root.scrollTop;
+      const next = entries.slice(shown, shown + 6); shown += next.length;
+      state.shown[key] = shown;
+      await Promise.all(next.map(entry => this._renderCard(list, entry, generation, inbound)));
+      more.hidden = shown >= entries.length;
+      if (generation === this._generation) root.scrollTop = scrollTop;
+    });
+    more.hidden = shown >= entries.length;
+    await Promise.all(entries.slice(0, shown).map(entry => this._renderCard(list, entry, generation, inbound)));
+  }
+  async _renderCard(parent, entry, generation, inbound) {
+    const card = parent.createDiv('atlas-lens-link-card');
+    card.dataset.path = entry.path;
+    const meta = card.createDiv('atlas-lens-card-meta');
+    const top = meta.createDiv('atlas-lens-card-top');
+    const open = this._button(top, entry.file?.basename || entry.path, () => {
+      return entry.passage ? this.plugin.jumpToPassage(entry.passage) : this.app.workspace.openLinkText(entry.file.path, this.currentFile.path);
+    }, 'atlas-lens-card-title', inbound ? ['arrow-down-left', 'corner-down-left'] : ['arrow-up-right']);
+    open.disabled = !entry.file;
+    // One quiet line of plugin metadata; the document's own words sit below in the quote slot.
+    const kind = meta.createDiv('atlas-lens-card-kind');
+    kind.createEl('span', { text: entry.path, cls: 'atlas-lens-card-path' });
+    kind.createEl('span', { text: entry.kind, cls: 'atlas-lens-kind-badge' });
+    if (!entry.file) { card.createEl('p', { text: '源笔记尚未创建', cls: 'atlas-empty-hint' }); return; }
+    if (entry.file.extension !== 'md') { card.createEl('p', { text: '附件 · 可打开查看，不摘取原句。', cls: 'atlas-empty-hint' }); return; }
     try {
-      await this.app.fileManager.processFrontMatter(file, (fm) => {
-        fm.memory_status = newStatus;
-        if (newStatus === 'crystallized' && !fm.luminance) {
-          fm.luminance = 'warm';
-        }
-        fm.updated = now;
-      });
-    } catch (err) {
-      new obsidian.Notice('⚠️ 更新状态失败，请检查 YAML 格式');
-      return;
-    }
-    let notice = '✨ 已点亮为「已结晶」记忆并入图';
-    if (newStatus === 'crystallized') {
-      try {
-        const dest = await this.plugin.movePendingToCrystals(file);
-        if (dest) notice = `✨ 已点亮结晶，并从待结晶目录移入 ${dest}`;
-      } catch (err) {
-        notice = `✨ 已点亮结晶，但没能移入 crystals 目录：${err?.message || err}`;
-      }
-    }
-    new obsidian.Notice(notice);
-    this.plugin.updateStatusBar();
-  }
-
-  async _togglePinLuminance(file, currentPinned) {
-    try {
-      await this.app.fileManager.processFrontMatter(file, (fm) => {
-        fm.luminance_pinned = !currentPinned;
-        if (!currentPinned) {
-          fm.luminance = 'active';
-        }
-      });
-      new obsidian.Notice(!currentPinned ? '📌 已锁定为恒星（免于时间衰减）' : '已取消恒星锁定');
-    } catch (err) {
-      new obsidian.Notice('⚠️ 更新光泽度锁定失败');
+      const content = await this.app.vault.cachedRead(entry.file);
+      if (generation !== this._generation) return;
+      entry.passage = inbound && entry.line == null ? null : lensExcerpt(entry.file, content, inbound ? entry.line : null);
+      if (!entry.passage) { card.createEl('p', { text: '暂无可摘取的正文；打开笔记查看。', cls: 'atlas-empty-hint' }); return; }
+      const passage = entry.passage;
+      kind.createEl('span', { text: passageLines(passage), cls: 'atlas-lens-line' });
+      const preview = formatLensSnippetPreview(passage.text);
+      const snippet = card.createEl('p', { cls: 'atlas-lens-snippet' });
+      snippet.createEl('span', { text: preview, cls: 'atlas-lens-snippet-text' });
+      const index = this.plugin.chatPassages.findIndex(p => samePassage(p, passage));
+      const collect = this._button(top, index < 0 ? '+ 引用篮' : `已收 #${index + 1}`, async () => {
+        const fresh = await this.app.vault.read(entry.file);
+        const located = locatePassage(fresh, { original: passage.text, from: passage.from });
+        if (located.offset < 0) { new obsidian.Notice('原句已变动，请刷新透镜后重新选择'); await this.refresh(); return; }
+        const updated = { ...passage, from: posOfOffset(fresh, located.offset), to: posOfOffset(fresh, located.offset + passage.text.length) };
+        if (await this.plugin.addChatPassage(updated, false)) await this.refresh();
+      }, 'atlas-lens-collect');
+      collect.disabled = index >= 0;
+    } catch (error) {
+      if (generation === this._generation) card.createEl('p', { text: '无法读取源笔记，请打开检查。', cls: 'atlas-empty-hint' });
     }
   }
-
-  renderWelcome(container) {
-    this._renderTopBar(container);
-    const welcome = container.createDiv('atlas-lens-welcome');
-    welcome.createDiv({ text: '🐾', cls: 'atlas-welcome-emblem' });
-    welcome.createEl('h3', { text: '欢迎来到猫咖知识花园 🌿' });
-    welcome.createEl('p', {
-      text: '点开任意一篇笔记让伴读猫猫陪你研读，或直接潜入星空、召集研讨会',
-      cls: 'atlas-lens-subtitle'
-    });
-
-    const actions = welcome.createDiv('atlas-lens-actions');
-    const starBtn = actions.createEl('button', { text: '✦ 打开 3D 记忆星图', cls: 'atlas-btn atlas-btn-primary' });
-    starBtn.addEventListener('click', () => this.plugin.openStarChart());
-    const seminarBtn = actions.createEl('button', { text: '🎓 组织多猫研讨会', cls: 'atlas-btn' });
-    seminarBtn.addEventListener('click', () => this.plugin.openSeminarModal());
-    const canvasBtn = actions.createEl('button', { text: '🎨 生成 2D 知识画布 (.canvas)', cls: 'atlas-btn' });
-    canvasBtn.addEventListener('click', () => this.plugin.generateCanvas());
-
-    // ── Live Cat Cafe Panel (when connected) ──
-    if (this.plugin.isCafeConnected) {
-      const client = this.plugin.cafeClient;
-      this._renderCafePanel(container, client);
-    } else if (this.plugin.settings.catCafeEnabled) {
-      const retryCard = container.createDiv('atlas-cafe-offline');
-      retryCard.createEl('p', { text: '⚠️ 猫咖 Hub 暂时未响应' });
-      const retryBtn = retryCard.createEl('button', { text: '🔄 重新连接', cls: 'atlas-btn' });
-      retryBtn.addEventListener('click', () => this.plugin._initCafeConnection());
-    }
-  }
-
-  _renderCafePanel(container, client) {
-    const panel = container.createDiv('atlas-cafe-panel');
-    panel.createEl('h4', { text: '☕ 猫咖实况 · 点击猫猫召唤伴读', cls: 'atlas-cafe-title' });
-
-    // Cat roster
-    if (client.cats.length > 0) {
-      const catSection = panel.createDiv('atlas-cafe-cats');
-      const familyCats = client.cats.filter(c =>
-        c.nickname || ['opus', 'sonnet', 'fable-5', 'cat-xooblf7l', 'cat-0gs0urog', 'cat-gpy5qnmg'].includes(c.id)
-      );
-      const displayCats = familyCats.length > 0 ? familyCats.slice(0, 7) : client.cats.slice(0, 7);
-
-      for (const cat of displayCats) {
-        const isSummoned = this.plugin.isCatSummoned(cat.id);
-        const profile = SpecParser.resolveCatProfile(cat);
-        const row = catSection.createDiv(`atlas-cafe-cat-row ${isSummoned ? 'is-summoned' : ''}`);
-        renderCatAvatar3D(row, cat, client, 'cafe');
-        const info = row.createDiv('atlas-cafe-cat-info');
-        const displayName = cat.nickname || profile?.nickname || cat.displayName || cat.name || cat.id;
-        info.createEl('span', { text: displayName, cls: 'atlas-cafe-cat-name' });
-        const sub = profile ? `${profile.breed} · ${profile.specialty}` : (cat.name || '');
-        if (sub) info.createEl('span', { text: sub, cls: 'atlas-cafe-cat-sub' });
-
-        const actionBtn = row.createEl('button', {
-          text: isSummoned ? '💬 找TA' : '✨ 召唤',
-          cls: `atlas-Row-summon-pill ${isSummoned ? 'is-active' : ''}`,
-        });
-        actionBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          if (!isSummoned) {
-            this.plugin.toggleSummonCat(cat.id);
-          } else {
-            this.plugin.openCafeChat({ targetCatId: cat.id });
-          }
-        });
-        row.addEventListener('click', () => {
-          this.plugin.toggleSummonCat(cat.id);
-        });
-      }
-    }
-
-    // Active threads for this vault
-    if (client.threads.length > 0) {
-      const threadSection = panel.createDiv('atlas-cafe-threads');
-      threadSection.createEl('h5', { text: '📋 活跃对话（点击在右侧栏打开）' });
-      for (const thread of client.threads.slice(0, 5)) {
-        const row = threadSection.createDiv('atlas-cafe-thread-row');
-        row.createEl('span', { text: thread.title || thread.id, cls: 'atlas-cafe-thread-title' });
-        const participants = thread.participants || [];
-        if (participants.length > 0) {
-          const avatarRow = row.createDiv('atlas-cafe-thread-avatars');
-          for (const pid of participants.slice(0, 5)) {
-            const pCat = client.cats.find(c => c.id === pid);
-            const pUrl = client.getAvatarUrl(pCat);
-            if (pUrl) {
-              const pImg = avatarRow.createEl('img', {
-                cls: 'atlas-thread-participant-avatar',
-                attr: { src: pUrl, alt: pCat?.nickname || pid, title: pCat?.nickname || pCat?.name || pid }
-              });
-              pImg.addEventListener('error', () => { pImg.style.display = 'none'; });
-            } else {
-              const pDot = avatarRow.createEl('span', {
-                cls: 'atlas-thread-participant-dot',
-                attr: { title: pCat?.nickname || pid }
-              });
-              pDot.style.backgroundColor = pCat?.color?.primary || '#C87D55';
-            }
-          }
-          if (participants.length > 5) {
-            avatarRow.createEl('span', { text: `+${participants.length - 5}`, cls: 'atlas-thread-more' });
-          }
-        }
-        const ago = thread.lastActiveAt ? this._timeAgo(thread.lastActiveAt) : '';
-        if (ago) row.createEl('span', { text: ago, cls: 'atlas-cafe-thread-ago' });
-        row.addEventListener('click', () => {
-          this.plugin.openCafeChat({ threadId: thread.id });
-        });
-      }
-    }
-
-    // Open in-app Chat or external Hub
-    const btnRow = panel.createDiv('atlas-cafe-btn-row');
-    const chatBtn = btnRow.createEl('button', {
-      text: '💬 进入插件内猫咖对话',
-      cls: 'atlas-btn atlas-btn-primary'
-    });
-    chatBtn.addEventListener('click', () => this.plugin.openCafeChat());
-
-    const hubBtn = btnRow.createEl('button', {
-      text: '↗ 浏览器打开 Hub',
-      cls: 'atlas-btn'
-    });
-    hubBtn.addEventListener('click', () => window.open(client.getHubUrl()));
-  }
-
-  _timeAgo(timestamp) {
-    const diff = Date.now() - timestamp;
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return '刚刚';
-    if (mins < 60) return `${mins} 分钟前`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours} 小时前`;
-    const days = Math.floor(hours / 24);
-    return `${days} 天前`;
-  }
-
-  renderNoFile(container) {
-    if (!container) {
-      container = this.containerEl.children[1];
-      container.empty();
-      container.addClass('atlas-provenance-lens');
-    }
-    this.renderWelcome(container);
-  }
-
-  renderUnindexed(container, file) {
-    this._renderTopBar(container);
-
-    const header = container.createDiv('atlas-lens-header');
-    header.createEl('h4', { text: file.basename });
-    header.createDiv({ text: file.path, cls: 'atlas-header-path' });
-
-    // ── Backlinks & Outlinks — useful for ANY note ──
-    const backlinks = this._getBacklinkFiles(file);
-    const outlinks = this._getOutlinkFiles(file);
-    const backlinkCount = backlinks.length;
-    const outlinkCount = outlinks.length;
-
-    // Activity level based on connections
-    const activityLevel = backlinkCount >= 5 ? 'active' : backlinkCount >= 2 ? 'warm' : backlinkCount >= 1 ? 'cool' : 'dormant';
-    const lumState = LUMINANCE_STATES[activityLevel];
-
-    const badges = header.createDiv('atlas-lens-badges');
-    badges.createEl('span', {
-      text: '🌱 普通笔记 · 未入籍',
-      cls: 'atlas-badge atlas-status-dormant'
-    });
-    badges.createEl('span', {
-      text: `${lumState.icon} 双链热度: ${lumState.label}`,
-      cls: `atlas-badge atlas-status-${activityLevel === 'active' ? 'crystallized' : activityLevel === 'warm' ? 'pending' : 'draft'}`
-    });
-    badges.createEl('span', {
-      text: `📎 ${backlinkCount} 入链`,
-      cls: 'atlas-badge atlas-level-badge'
-    });
-
-    // ── One-Click Enroll Card (零摩擦点亮入图) ──
-    const enrollCard = container.createDiv('atlas-enroll-card');
-    enrollCard.createDiv({ text: '✨ 赋予这篇笔记记忆身份', cls: 'atlas-enroll-title' });
-    enrollCard.createDiv({
-      text: '无需手填 YAML，点击下方类型即可将此笔记安全点亮并纳入 Atlas 星图（原有内容 100% 保留）：',
-      cls: 'atlas-enroll-desc'
-    });
-    const btnGroup = enrollCard.createDiv('atlas-enroll-btn-group');
-    [
-      { key: 'semantic', icon: '🧠', label: '语义记忆' },
-      { key: 'episodic', icon: '🕐', label: '情景记忆' },
-      { key: 'procedural', icon: '⚙️', label: '程序记忆' },
-    ].forEach((item) => {
-      const btn = btnGroup.createEl('button', { cls: 'atlas-enroll-btn' });
-      btn.createEl('span', { text: item.icon, attr: { style: 'font-size:15px;' } });
-      btn.createEl('span', { text: item.label });
-      btn.addEventListener('click', () => this._quickEnrollFile(file, item.key));
-    });
-
-    // Luminance bar
-    const lumSection = container.createDiv('atlas-lens-section');
-    lumSection.createEl('h5', { text: '✦ 自然连接光泽度' });
-    const lumRow = lumSection.createDiv('atlas-luminance-row');
-    const bar = lumRow.createDiv('atlas-luminance-bar');
-    const fill = bar.createDiv('atlas-luminance-bar-fill');
-    const percent = activityLevel === 'active' ? 90 : activityLevel === 'warm' ? 60 : activityLevel === 'cool' ? 30 : 10;
-    fill.style.width = percent + '%';
-    fill.style.backgroundColor = lumState.hex;
-    const metrics = lumSection.createDiv('atlas-luminance-metrics');
-    metrics.createEl('span', { text: `被 ${backlinkCount} 篇笔记引用 · 引用了 ${outlinkCount} 篇`, cls: 'atlas-metric' });
-    metrics.createEl('span', { text: '独立模式本地图谱计算', cls: 'atlas-metric-source' });
-
-    // ── Backlinks section ──
-    if (backlinkCount > 0) {
-      const blSection = container.createDiv('atlas-lens-section');
-      blSection.createEl('h5', { text: `🔗 谁引用了这篇 (${backlinkCount})` });
-      const list = blSection.createEl('ul', { cls: 'atlas-related-list' });
-      for (const bl of backlinks.slice(0, 10)) {
-        const li = list.createEl('li');
-        const link = li.createEl('a', { text: `← ${bl.basename}`, cls: 'internal-link' });
-        link.addEventListener('click', (e) => {
-          e.preventDefault();
-          this.app.workspace.openLinkText(bl.path, file.path);
-        });
-      }
-      if (backlinkCount > 10) {
-        blSection.createEl('p', { text: `...还有 ${backlinkCount - 10} 篇笔记也引用了它`, cls: 'atlas-empty-hint' });
-      }
-    }
-
-    // ── Outlinks section ──
-    if (outlinkCount > 0) {
-      const olSection = container.createDiv('atlas-lens-section');
-      olSection.createEl('h5', { text: `↗ 这篇引用了 (${outlinkCount})` });
-      const list = olSection.createEl('ul', { cls: 'atlas-related-list' });
-      for (const ol of outlinks.slice(0, 10)) {
-        const li = list.createEl('li');
-        const link = li.createEl('a', { text: `→ ${ol.basename}`, cls: 'internal-link' });
-        link.addEventListener('click', (e) => {
-          e.preventDefault();
-          this.app.workspace.openLinkText(ol.path, file.path);
-        });
-      }
-    }
-
-    // ── File info ──
-    if (file.stat?.mtime) {
-      const meta = container.createDiv('atlas-lens-section');
-      meta.createEl('h5', { text: '🗂 笔记档案' });
-      const table = meta.createEl('table', { cls: 'atlas-lens-table' });
-      this._addTableRow(table, '最后修改', new Date(file.stat.mtime).toLocaleDateString('zh-CN'));
-      this._addTableRow(table, '体积', this._formatSize(file.stat.size || 0));
-    }
-  }
-
-  renderNote(container, file, note) {
-    this._renderTopBar(container);
-
-    // Header with title and status
-    const header = container.createDiv('atlas-lens-header');
-    header.createEl('h4', { text: note.title || file.basename });
-    header.createDiv({ text: file.path, cls: 'atlas-header-path' });
-
-    // Status + Level badges
-    const badges = header.createDiv('atlas-lens-badges');
-    const statusInfo = STATUS_LABELS[note.memory_status] || STATUS_LABELS.draft;
-    badges.createEl('span', {
-      text: `${statusInfo.icon} ${statusInfo.label}`,
-      cls: `atlas-badge atlas-status-${note.memory_status}`
-    });
-
-    const typeInfo = MEMORY_TYPE_COLORS[note.memory_type];
-    if (typeInfo) {
-      const typeBadge = badges.createEl('span', {
-        text: `${typeInfo.icon} ${typeInfo.label}`,
-        cls: 'atlas-badge atlas-type-badge'
-      });
-      typeBadge.style.borderColor = typeInfo.hex;
-      typeBadge.style.color = typeInfo.hex;
-    }
-
-    badges.createEl('span', { text: note.level, cls: 'atlas-badge atlas-level-badge' });
-
-    // Interactive Quick-Crystallize button if still draft/pending
-    if (note.memory_status !== 'crystallized') {
-      const cryBtn = badges.createEl('button', {
-        text: '✨ 点亮结晶',
-        cls: 'atlas-quick-action-pill',
-        attr: { title: '人工确认后升格为已结晶；待结晶目录里的笔记会移入 crystals' }
-      });
-      cryBtn.addEventListener('click', () => this._quickUpdateStatus(file, 'crystallized'));
-    }
-
-    // ── Section: Diagnostics ──
-    if (note.diagnostics && note.diagnostics.length > 0) {
-      const diagSection = container.createDiv('atlas-lens-section atlas-lens-diagnostics');
-      for (const d of note.diagnostics) {
-        diagSection.createEl('p', { text: `⚠️ ${d}`, cls: 'atlas-diagnostic-warning' });
-      }
-    }
-
-    // ── Section: Authors (共创基因) ──
-    if (note.atlas_authors.length > 0 || note.atlas_author_details.length > 0 || note.legacy_authors.length > 0) {
-      this._renderAuthors(container, note);
-    }
-
-    // ── Section: Evidence Chain (证据链) ──
-    if (note.atlas_evidence.length > 0) {
-      this._renderEvidence(container, note);
-    }
-
-    // ── Section: Luminance (记忆光泽度) ──
-    this._renderLuminance(container, note, file);
-
-    // ── Section: Source info ──
-    if (note.atlas_source) {
-      this._renderSource(container, note);
-    }
-
-    // ── Section: Paper info ──
-    if (note.type === 'paper' || note.paper_arxiv || note.paper_authors.length > 0) {
-      this._renderPaperInfo(container, note);
-    }
-
-    // ── Section: Related notes ──
-    if (note.related) {
-      this._renderRelated(container, note, file);
-    }
-
-    // ── Section: Identity ──
-    this._renderIdentity(container, note);
-  }
-
-  _renderAuthors(container, note) {
-    const section = container.createDiv('atlas-lens-section');
-    section.createEl('h5', { text: '🐾 共创基因' });
-    const listWrap = section.createDiv('atlas-author-list');
-
-    // Show L1+ details if available
-    const details = note.atlas_author_details;
-    const detailNames = new Set(details.map(a => String(a.name || a.id || '').toLowerCase()));
-
-    if (details.length > 0) {
-      for (const author of details) {
-        this._renderAuthorRow(listWrap, author.name || author.id, author.color, author.role);
-      }
-    }
-
-    // Show L1 authors not present in L1+ details (conflict indicator)
-    for (const name of note.atlas_authors) {
-      if (!detailNames.has(String(name).toLowerCase())) {
-        this._renderAuthorRow(listWrap, name, null, null);
-        if (details.length > 0) {
-          section.createEl('p', {
-            text: `⚠ "${name}" 在 atlas_authors 中但不在 atlas_author_details 中`,
-            cls: 'atlas-conflict-hint'
-          });
-        }
-      }
-    }
-
-    // Show legacy authors (old format)
-    if (note.legacy_authors.length > 0 && note.atlas_authors.length === 0 && details.length === 0) {
-      section.createEl('p', { text: '兼容旧版共创记录', cls: 'atlas-legacy-hint' });
-      for (const author of note.legacy_authors) {
-        const name = typeof author === 'string' ? author : (author.name || author.id || 'unknown');
-        const color = typeof author === 'object' ? author.color : null;
-        const role = typeof author === 'object' ? author.role : null;
-        this._renderAuthorRow(listWrap, name, color, role);
-      }
-    }
-  }
-
-  _renderAuthorRow(container, name, color, role) {
-    const row = container.createDiv('atlas-author-row');
-    const left = row.createDiv('atlas-author-left');
-    const catInfo = SpecParser.resolveCatColor(name);
-    const resolvedColor = color || catInfo?.color || '#C87D55';
-
-    // Find live cat data for real avatar
+  _renderThreads(parent, file, note) {
+    const section = parent.createDiv('atlas-lens-section');
+    section.createEl('h5', { text: '相关研讨' });
     const client = this.plugin.cafeClient;
-    const liveCat = client?.cats?.find(c =>
-      c.nickname === name || c.displayName === name || c.name === name || c.id === name
-    );
-    // Use 3D avatar if we have a live cat, otherwise fallback
-    if (liveCat || client?.connected) {
-      const catObj = liveCat || { color: { primary: resolvedColor }, nickname: name, name: name };
-      renderCatAvatar3D(left, catObj, client, 'author');
-    } else {
-      const avatar = left.createEl('span', {
-        text: catInfo ? '🐾' : '✦',
-        cls: 'atlas-author-avatar atlas-avatar-fallback'
-      });
-      avatar.style.backgroundColor = resolvedColor;
+    const threads = lensThreads(this.plugin, file);
+    if (!threads.length) section.createEl('p', { text: this.plugin.isCafeConnected ? '本地尚无与此篇绑定的研讨记录。' : '连接猫咖后，可返回与此篇关联的研讨。', cls: 'atlas-empty-hint' });
+    for (const thread of threads) {
+      const title = thread.title || thread.id;
+      const button = this._button(section, thread.id === note?.atlas_source_ref ? `原研讨 · ${title}` : title, () => {
+        if (this.plugin.cafeClient !== client) { new obsidian.Notice('猫咖连接已变，请刷新透镜'); return; }
+        return this.plugin.openCafeChat({ threadId: thread.id, client });
+      }, 'atlas-lens-discussion', ['message-square', 'message-circle']);
+      button.disabled = !this.plugin.isCafeConnected;
     }
-
-    const info = left.createDiv('atlas-author-info');
-    info.createEl('span', { text: String(name || 'unknown'), cls: 'atlas-author-name' });
-    info.createEl('span', {
-      text: catInfo ? `${catInfo.label} · 猫咖成员` : '共创伙伴',
-      cls: 'atlas-author-sub'
+    if (note?.atlas_source_ref && !threads.some(t => t.id === note.atlas_source_ref)) {
+      section.createEl('p', { text: note.atlas_source_cafe ? '原研讨未在当前连接的对话列表中。' : '旧笔记未记录来源猫咖地址，暂不推断原研讨入口。', cls: 'atlas-empty-hint' });
+    }
+  }
+  _renderDerived(parent, entries) {
+    const section = parent.createDiv('atlas-lens-section');
+    section.createEl('h5', { text: `由此篇提炼 · ${entries.length}` });
+    if (!entries.length) section.createEl('p', { text: '研讨中的回复可存为待结晶笔记，并在这里回看。', cls: 'atlas-empty-hint' });
+    for (const item of entries) {
+      const card = section.createDiv('atlas-lens-derived');
+      const pending = item.status === 'pending';
+      card.createEl('span', { text: pending ? '待审阅' : '已结晶', cls: `atlas-lens-tag ${pending ? 'is-pending' : 'is-crystallized'}` });
+      this._button(card, item.file.basename, () => this.app.workspace.openLinkText(item.path, this.currentFile.path));
+      const authors = Array.isArray(item.authors) ? item.authors.join('、') : String(item.authors || '');
+      if (authors) card.createEl('span', { text: authors, cls: 'atlas-lens-card-path' });
+    }
+  }
+  /** The note's properties, read at a glance under its title: state, type, luminance, co-authors, update, sources. */
+  _renderProperties(parent, file, note) {
+    const props = parent.createDiv('atlas-lens-properties');
+    const row = (key) => {
+      const line = props.createDiv('atlas-lens-prop');
+      line.createEl('span', { text: key, cls: 'atlas-lens-prop-key' });
+      return line.createDiv('atlas-lens-prop-value');
+    };
+    const state = note?.memory_status;
+    const stateLabel = state === 'pending' ? '待审阅结晶' : state === 'crystallized' ? '已结晶' : state === 'dormant' ? '休眠' : '研究笔记';
+    row('状态').createEl('span', { text: stateLabel, cls: `atlas-lens-state is-${state || 'note'}` });
+    const types = row('类型').createDiv({ cls: 'atlas-lens-segmented', attr: { role: 'group', 'aria-label': '记忆类型' } });
+    for (const [key, type] of Object.entries(MEMORY_TYPE_COLORS)) {
+      const button = this._button(types, type.label, () => this._quickEnrollFile(file, key), 'atlas-lens-seg');
+      button.setAttribute('aria-pressed', String(note?.memory_type === key));
+    }
+    const pinned = Boolean(note?.luminance_pinned);
+    const luminance = row('光泽');
+    luminance.createEl('span', { text: LUMINANCE_STATES[pinned ? 'active' : note?.luminance]?.label || '未评估', cls: 'atlas-lens-prop-text' });
+    const pin = this._button(luminance, pinned ? '已锁定恒星' : '锁定恒星', () => this._togglePinLuminance(file, pinned), 'atlas-lens-seg');
+    pin.setAttribute('aria-pressed', String(pinned));
+    if (note?.atlas_authors?.length) row('共创').setText(note.atlas_authors.join('、'));
+    const updated = this.app.metadataCache.getFileCache(file)?.frontmatter?.updated;
+    if (updated) row('更新').setText(String(updated));
+    if (note?.diagnostics?.length) props.createEl('p', { text: note.diagnostics.join('；'), cls: 'atlas-diagnostic-warning' });
+    if (note?.atlas_evidence?.length) {
+      const sources = props.createEl('details', { cls: 'atlas-lens-sources' });
+      const state = this._readingState;
+      sources.open = state.sourcesOpen;
+      sources.addEventListener('toggle', () => { state.sourcesOpen = sources.open; });
+      sources.createEl('summary', { text: `来源记录 · ${note.atlas_evidence.length}` });
+      for (const evidence of note.atlas_evidence) sources.createEl('p', { text: [evidence.label, evidence.ref].filter(Boolean).join(' · ') });
+    }
+  }
+  async _quickEnrollFile(file, memoryType) {
+    await this.app.fileManager.processFrontMatter(file, fm => {
+      if (!fm.atlas_version) fm.atlas_version = 'v1';
+      if (!fm.atlas_id) fm.atlas_id = this.plugin._generateUUID();
+      fm.memory_type = memoryType;
+      if (!fm.memory_status) fm.memory_status = 'draft';
+      if (!fm.atlas_source) fm.atlas_source = 'manual';
+      if (!fm.created) fm.created = this.plugin._localDate();
+      fm.updated = this.plugin._localDate();
     });
-
-    const roleMap = { author: '主笔', reviewer: '审阅', approver: '拍板' };
-    const roleText = role ? (roleMap[role] || role) : '主笔';
-    row.createEl('span', { text: roleText, cls: 'atlas-author-role-pill' });
+    this.plugin.updateStatusBar(); await this.refresh();
   }
-
-  _renderEvidence(container, note) {
-    const section = container.createDiv('atlas-lens-section');
-    section.createEl('h5', { text: '📜 证据链溯源' });
-    const timeline = section.createDiv('atlas-evidence-timeline');
-
-    for (const ev of note.atlas_evidence) {
-      const card = timeline.createDiv('atlas-evidence-card');
-      const top = card.createDiv('atlas-evidence-top');
-      const typeLabel = top.createDiv('atlas-evidence-type');
-      typeLabel.createEl('span', { text: this._evidenceIcon(ev.type) + ' ' + String(ev.type || 'evidence').toUpperCase() });
-
-      if (ev.label) {
-        card.createEl('div', { text: ev.label, cls: 'atlas-evidence-label' });
-      }
-      if (ev.ref) {
-        const refEl = card.createEl('div', { cls: 'atlas-evidence-ref' });
-        refEl.createEl('code', { text: ev.ref });
-      }
-    }
-  }
-
-  _renderLuminance(container, note, file) {
-    const section = container.createDiv('atlas-lens-section');
-    const titleRow = section.createDiv('atlas-section-title-row');
-    titleRow.createEl('h5', { text: '✦ 记忆光泽度' });
-
-    const pinBtn = titleRow.createEl('button', {
-      text: note.luminance_pinned ? '📌 已锁定恒星' : '📌 锁定恒星',
-      cls: `atlas-pin-toggle-btn ${note.luminance_pinned ? 'is-pinned' : ''}`,
-      attr: { title: '将此核心记忆锁定为恒星高亮，不随时间衰减' }
+  async _quickUpdateStatus(file, newStatus) {
+    await this.app.fileManager.processFrontMatter(file, fm => {
+      fm.memory_status = newStatus; fm.updated = this.plugin._localDate();
+      if (newStatus === 'crystallized' && !fm.luminance) fm.luminance = 'warm';
     });
-    pinBtn.addEventListener('click', () => this._togglePinLuminance(file, note.luminance_pinned));
-
-    const backlinks = this._countBacklinks(file);
-    const fallbackLevel = backlinks >= 5 ? 'active' : backlinks >= 2 ? 'warm' : backlinks >= 1 ? 'cool' : null;
-    const effectiveLum = note.luminance_pinned ? 'active' : (note.luminance || fallbackLevel);
-    const lumState = effectiveLum ? LUMINANCE_STATES[effectiveLum] : null;
-
-    if (lumState) {
-      const row = section.createDiv('atlas-luminance-row');
-      const indicator = row.createDiv('atlas-luminance-indicator');
-      const leftBadge = indicator.createDiv('atlas-luminance-badge-left');
-      leftBadge.createEl('span', { text: lumState.icon, cls: 'atlas-luminance-icon', attr: { style: `color:${lumState.hex}` } });
-      leftBadge.createEl('span', { text: `${lumState.label} (${effectiveLum})`, cls: 'atlas-luminance-label' });
-
-      const percent = effectiveLum === 'active' ? 95 :
-                      effectiveLum === 'warm' ? 68 :
-                      effectiveLum === 'cool' ? 38 : 16;
-      indicator.createEl('span', { text: `${percent}%`, cls: 'atlas-metric-source' });
-
-      const bar = row.createDiv('atlas-luminance-bar');
-      const fill = bar.createDiv('atlas-luminance-bar-fill');
-      fill.style.width = percent + '%';
-      fill.style.backgroundColor = lumState.hex;
-    } else {
-      section.createEl('p', { text: '暂无服务端核验记录（本地双链 0）', cls: 'atlas-luminance-unknown' });
-    }
-
-    const metrics = section.createDiv('atlas-luminance-metrics');
-    metrics.createEl('span', { text: `📎 ${backlinks} 篇本地反链`, cls: 'atlas-metric' });
-    metrics.createEl('span', { text: note.luminance ? '来源：笔记快照' : '来源：本地双链折算', cls: 'atlas-metric-source' });
+    const dest = newStatus === 'crystallized' ? await this.plugin.movePendingToCrystals(file) : null;
+    this.plugin.updateStatusBar(); await this.refresh();
+    new obsidian.Notice(dest ? `已点亮结晶，并移入 ${dest}` : '已点亮结晶');
   }
-
-  _renderSource(container, note) {
-    const section = container.createDiv('atlas-lens-section');
-    section.createEl('h5', { text: '🧭 来源登记' });
-    const table = section.createEl('table', { cls: 'atlas-lens-table' });
-    this._addTableRow(table, '来源系统', note.atlas_source);
-    if (note.atlas_source_ref) {
-      this._addTableRow(table, '引用锚点', note.atlas_source_ref);
-    }
-  }
-
-  _renderPaperInfo(container, note) {
-    const section = container.createDiv('atlas-lens-section');
-    section.createEl('h5', { text: '📑 论文元数据' });
-    const table = section.createEl('table', { cls: 'atlas-lens-table' });
-    if (note.paper_authors.length > 0) {
-      this._addTableRow(table, '论文作者', note.paper_authors.join(', '));
-    }
-    if (note.paper_arxiv) {
-      const row = table.createEl('tr');
-      row.createEl('td', { text: 'arXiv', cls: 'atlas-table-label' });
-      const td = row.createEl('td');
-      td.createEl('a', {
-        text: note.paper_arxiv,
-        href: `https://arxiv.org/abs/${note.paper_arxiv}`,
-        cls: 'external-link'
-      });
-    }
-    if (note.paper_venue) this._addTableRow(table, '发表机构', note.paper_venue);
-    if (note.paper_date) this._addTableRow(table, '年份日期', note.paper_date);
-  }
-
-  _renderRelated(container, note, file) {
-    const section = container.createDiv('atlas-lens-section');
-    section.createEl('h5', { text: '🕸 关联记忆网络' });
-
-    const seenTargets = new Set();
-    const allLinks = [];
-
-    for (const raw of (note.related || [])) {
-      const parsed = SpecParser.parseWikilink(raw);
-      if (!parsed) continue;
-      const resolved = this.app.metadataCache.getFirstLinkpathDest(parsed.target, file.path);
-      const target = resolved ? resolved.path : parsed.target;
-      if (!seenTargets.has(target)) {
-        seenTargets.add(target);
-        allLinks.push({ target, display: parsed.display, source: 'frontmatter', resolved: !!resolved });
-      }
-    }
-
-    const cache = this.app.metadataCache.getFileCache(file);
-    if (cache?.links) {
-      for (const link of cache.links) {
-        const resolved = this.app.metadataCache.getFirstLinkpathDest(link.link, file.path);
-        const target = resolved ? resolved.path : link.link;
-        if (!seenTargets.has(target)) {
-          seenTargets.add(target);
-          allLinks.push({ target, display: link.displayText || link.link, source: 'content', resolved: !!resolved });
-        }
-      }
-    }
-
-    if (allLinks.length === 0) {
-      section.createEl('p', { text: '暂无关联笔记', cls: 'atlas-empty-hint' });
-      return;
-    }
-
-    const list = section.createEl('ul', { cls: 'atlas-related-list' });
-    for (const rel of allLinks.slice(0, 15)) {
-      const li = list.createEl('li');
-      const link = li.createEl('a', { cls: 'internal-link' });
-      link.createEl('span', { text: `→ ${rel.display}` });
-      link.createEl('span', {
-        text: rel.source === 'frontmatter' ? '显式关联' : '正文引用',
-        attr: { style: 'font-size:10px; opacity:0.6;' }
-      });
-      if (!rel.resolved) {
-        link.addClass('is-unresolved');
-        link.title = '目标笔记不存在';
-      }
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (!rel.resolved) {
-          new obsidian.Notice(`笔记 "${rel.display}" 尚未创建。`);
-          return;
-        }
-        this.app.workspace.openLinkText(rel.target, file.path);
-      });
-    }
-  }
-
-  _renderIdentity(container, note) {
-    if (!note.atlas_id && !note.atlas_version) return;
-
-    const section = container.createDiv('atlas-lens-section atlas-lens-identity');
-    section.createEl('h5', { text: '🔖 记忆晶格标识' });
-    const table = section.createEl('table', { cls: 'atlas-lens-table' });
-    if (note.atlas_id) this._addTableRow(table, 'ID', note.atlas_id.slice(0, 18) + '…');
-    if (note.atlas_version) this._addTableRow(table, 'Spec', note.atlas_version);
-  }
-
-  // ── Helpers ──
-
-  _countBacklinks(file) {
-    return this._getBacklinkFiles(file).length;
-  }
-
-  _getBacklinkFiles(file) {
-    const allLinks = this.app.metadataCache.resolvedLinks;
-    const results = [];
-    for (const [sourcePath, targets] of Object.entries(allLinks)) {
-      if (sourcePath !== file.path && targets[file.path]) {
-        const f = this.app.vault.getAbstractFileByPath(sourcePath);
-        if (f) results.push(f);
-      }
-    }
-    return results.sort((a, b) => (b.stat?.mtime || 0) - (a.stat?.mtime || 0));
-  }
-
-  _getOutlinkFiles(file) {
-    const allLinks = this.app.metadataCache.resolvedLinks;
-    const targets = allLinks[file.path] || {};
-    const results = [];
-    for (const targetPath of Object.keys(targets)) {
-      const f = this.app.vault.getAbstractFileByPath(targetPath);
-      if (f) results.push(f);
-    }
-    return results;
-  }
-
-  _evidenceIcon(type) {
-    switch (type) {
-      case 'thread': return '💬';
-      case 'document': return '📄';
-      case 'paper': return '📑';
-      case 'code': return '💻';
-      case 'session': return '🔗';
-      default: return '📎';
-    }
-  }
-
-  _addTableRow(table, label, value) {
-    const row = table.createEl('tr');
-    row.createEl('td', { text: label, cls: 'atlas-table-label' });
-    row.createEl('td', { text: String(value || '-') });
-  }
-
-  _formatSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  async _togglePinLuminance(file, pinned) {
+    await this.app.fileManager.processFrontMatter(file, fm => {
+      fm.luminance_pinned = !pinned;
+      if (!pinned) fm.luminance = 'active';
+    });
+    await this.refresh();
   }
 }
 
@@ -1442,7 +1109,7 @@ class ClowderAtlasSettingTab extends obsidian.PluginSettingTab {
             await this.plugin._initCafeConnection();
           } else {
             await this.plugin._disconnectCafe();
-            new obsidian.Notice('🐾 已断开猫咖连接');
+            new obsidian.Notice('已断开猫咖连接');
           }
         }));
 
@@ -1452,33 +1119,33 @@ class ClowderAtlasSettingTab extends obsidian.PluginSettingTab {
       if (this.plugin.isCafeConnected) {
         const client = this.plugin.cafeClient;
         connStatus.createEl('span', {
-          text: `✅ 已连接 · ${client.cats.length} 只猫 · ${client.threads.length} 条对话`,
+          text: `已连接 · ${client.cats.length} 只猫 · ${client.threads.length} 条对话`,
           cls: 'atlas-conn-ok'
         });
       } else if (this.plugin.settings.catCafeEnabled) {
         const errMsg = this.plugin.cafeClient?.lastError || '无法连接';
         connStatus.createEl('span', {
-          text: `❌ ${errMsg}`,
+          text: `未连接：${errMsg}`,
           cls: 'atlas-conn-err'
         });
         // Diagnostic & auto-fix button
         const fixRow = connStatus.createDiv('atlas-conn-fix-row');
         const diagBtn = fixRow.createEl('button', {
-          text: '🔍 检测并修复',
+          text: '检测并修复',
           cls: 'atlas-conn-fix-btn'
         });
         diagBtn.addEventListener('click', async () => {
           diagBtn.textContent = '检测中…';
           diagBtn.disabled = true;
           const result = await this.plugin._diagnoseConnection();
-          diagBtn.textContent = '🔍 检测并修复';
+          diagBtn.textContent = '检测并修复';
           diagBtn.disabled = false;
           _refreshConnStatus();
         });
         // Show hint based on error type
         const hint = connStatus.createDiv('atlas-conn-hint');
         if (errMsg.includes('abort') || errMsg.includes('timeout') || errMsg.includes('ECONNREFUSED') || errMsg.includes('Failed')) {
-          hint.textContent = '💡 请确认 Cat Cafe Hub 正在运行 (pnpm start)';
+          hint.textContent = '请确认 Cat Cafe Hub 正在运行（pnpm start）';
         }
       }
     };
@@ -1504,48 +1171,29 @@ class ClowderAtlasSettingTab extends obsidian.PluginSettingTab {
       .setName('一键连接猫咖')
       .setDesc('自动查找本机正在运行的猫咖，填好地址并打开连接。还没安装猫咖的话，先下载安装。')
       .addButton(btn => btn
-        .setButtonText('🔌 一键连接')
+        .setButtonText('一键连接')
         .setCta()
         .onClick(async () => {
           btn.setButtonText('查找中…');
           btn.setDisabled(true);
           const outcome = await this.plugin.oneClickConnect();
           if (outcome.status === 'connected') {
-            new obsidian.Notice(`✅ 已连接猫咖：${outcome.address}`);
+            new obsidian.Notice(`已连接猫咖：${outcome.address}`);
             this.display(); // refresh the whole page: toggle, status and address
             return;
           }
           new obsidian.Notice(outcome.status === 'failed'
-            ? `❌ 找到了猫咖（${outcome.address}），但没能连上：${outcome.error}`
-            : '❌ 本机没有找到运行中的猫咖 — 已安装的话先打开它；还没安装可以点「下载猫咖」');
-          btn.setButtonText('🔌 一键连接');
+            ? `找到了猫咖（${outcome.address}），但没能连上：${outcome.error}`
+            : '本机没有找到运行中的猫咖 — 已安装的话先打开它；还没安装可以点「下载猫咖」');
+          btn.setButtonText('一键连接');
           btn.setDisabled(false);
         }))
       .addButton(btn => btn
-        .setButtonText('⬇️ 下载猫咖')
+        .setButtonText('下载猫咖')
         .onClick(() => window.open(CLOWDER_RELEASES_URL)));
 
     // ── Visual ──
     containerEl.createEl('h3', { text: '视觉' });
-
-    new obsidian.Setting(containerEl)
-      .setName('显示引用徽章')
-      .setDesc('在笔记阅读模式顶部显示被猫引用的徽章')
-      .addToggle(toggle => toggle
-        .setValue(this.plugin.settings.showRecallBadge)
-        .onChange(async (value) => {
-          this.plugin.settings.showRecallBadge = value;
-          await this.plugin.saveSettings();
-        }));
-
-    new obsidian.Setting(containerEl)
-      .setName('启用 Luminance 视觉效果')
-      .addToggle(toggle => toggle
-        .setValue(this.plugin.settings.enableLuminanceCSS)
-        .onChange(async (value) => {
-          this.plugin.settings.enableLuminanceCSS = value;
-          await this.plugin.saveSettings();
-        }));
 
     const themeNote = containerEl.createEl('p', { cls: 'setting-item-description' });
     themeNote.textContent = '深色/浅色主题 100% 跟随 Obsidian，无需手动开关';
@@ -1652,7 +1300,9 @@ class StarChartView extends obsidian.ItemView {
     });
 
     scored.sort((a, b) => b.score - a.score);
-    const mainStars = scored.filter(s => s.score > 0).slice(0, 80);
+    const focused = scored.find(s => s.file.path === this._focusPath);
+    const mainStars = scored.filter(s => s.score > 0 && s !== focused).slice(0, focused ? 79 : 80);
+    if (focused) mainStars.unshift(focused);
 
     // Build connection graph
     const nodeMap = {};
@@ -1827,7 +1477,7 @@ class StarChartView extends obsidian.ItemView {
       root.addClass('is-empty');
       root.createDiv('atlas-star-stage').createDiv({
         cls: 'atlas-star-empty',
-        text: '你的 Vault 还没有互相链接的笔记。开始用 [[双链]] 连接你的想法，星空就会亮起来 ✨'
+        text: '你的 Vault 还没有互相链接的笔记。开始用 [[双链]] 连接你的想法，星空就会亮起来。'
       });
       return;
     }
@@ -1842,6 +1492,14 @@ class StarChartView extends obsidian.ItemView {
       twinkleOffset: Math.random() * Math.PI * 2,
       twinkleSpeed: Math.random() * 0.015 + 0.005
     }));
+    const focused = this._stars.find(s => s.file.path === this._focusPath);
+    if (focused) {
+      this._rotY = Math.atan2(focused.x, focused.z);
+      const z = focused.x * Math.sin(this._rotY) + focused.z * Math.cos(this._rotY);
+      this._rotX = Math.atan2(focused.y, z);
+      this._paused = true;
+      this._filter = 'all';
+    }
     this._edges = connections;
     this._dust = this._generateDust(520);
 
@@ -2347,7 +2005,7 @@ class StarChartView extends obsidian.ItemView {
       // ── Draw stars ──
       for (const p of projected) {
         const s = this._stars[p.i];
-        const isHovered = p.i === this._hoveredIdx;
+        const isHovered = p.i === this._hoveredIdx || s.file.path === this._focusPath;
         const dimFactor = p.match ? 1 : 0.14;
         const twinkle = 0.82 + 0.18 * Math.sin(this._time * s.twinkleSpeed + s.twinkleOffset);
         const baseR = this._starBaseRadius(s.backlinks);
@@ -2496,7 +2154,7 @@ class CafeChatView extends obsidian.ItemView {
   }
 
   getViewType() { return VIEW_TYPE_CAFE_CHAT; }
-  getDisplayText() { return '☕ 猫咖对话'; }
+  getDisplayText() { return '猫咖对话'; }
   getIcon() { return 'message-circle'; }
 
   onload() {
@@ -2611,15 +2269,15 @@ class CafeChatView extends obsidian.ItemView {
 
   _renderOffline(container) {
     const offline = container.createDiv('atlas-chat-offline');
-    offline.createDiv({ text: '☕', cls: 'atlas-chat-offline-icon' });
+    setAtlasIcon(offline.createDiv({ cls: 'atlas-chat-offline-icon', attr: { 'aria-hidden': 'true' } }), ['unplug', 'plug-zap', 'coffee']);
     offline.createEl('h3', { text: '还没连上猫咖' });
     offline.createEl('p', { text: '猫咖（Clowder AI）是猫猫们工作和聊天的地方。连上之后，伴读席、研讨会和对话都会出现在这里。' });
     const lastError = this.plugin.settings.catCafeEnabled && this.plugin.cafeClient?.lastError;
     if (lastError) offline.createEl('p', { text: `连不上 ${this.plugin.settings.catCafeAddress}：${lastError}`, cls: 'atlas-cafe-onboard-error' });
 
     const actions = offline.createDiv('atlas-cafe-onboard-actions');
-    const connectBtn = actions.createEl('button', { text: '🔌 一键连接猫咖', cls: 'atlas-btn atlas-btn-primary' });
-    const manualBtn = actions.createEl('button', { text: '⚙️ 填写地址', cls: 'atlas-btn', attr: { 'aria-expanded': 'false', 'aria-controls': 'atlas-chat-config' } });
+    const connectBtn = actions.createEl('button', { text: '一键连接猫咖', cls: 'atlas-btn atlas-btn-primary' });
+    const manualBtn = actions.createEl('button', { text: '填写地址', cls: 'atlas-btn', attr: { 'aria-expanded': 'false', 'aria-controls': 'atlas-chat-config' } });
     this._offlineManualBtn = manualBtn;  // onOpen reopens it to carry an unsaved address across a rebuild
     const form = offline.createDiv({ cls: 'atlas-chat-config is-offline', attr: { id: 'atlas-chat-config', hidden: '' } });
     manualBtn.addEventListener('click', () => {
@@ -2638,7 +2296,7 @@ class CafeChatView extends obsidian.ItemView {
       const outcome = await this.plugin.oneClickConnect();
       if (outcome.status === 'connected') return;  // every view was refreshed into its connected state
       connectBtn.disabled = false;
-      connectBtn.textContent = '🔌 再试一次';
+      connectBtn.textContent = '再试一次';
       if (outcome.status === 'failed') {
         result.createEl('p', { text: `找到了猫咖（${outcome.address}），但没能连上：${outcome.error}。请确认它运行正常后再试。` });
       } else {
@@ -2656,9 +2314,9 @@ class CafeChatView extends obsidian.ItemView {
     steps.createEl('li', { text: '打开猫咖，等它启动完成' });
     steps.createEl('li', { text: '回到这里，点「再试一次」' });
     const links = guide.createDiv('atlas-cafe-install-links');
-    const download = links.createEl('button', { text: '⬇️ 打开下载页', cls: 'atlas-btn atlas-btn-primary' });
+    const download = links.createEl('button', { text: '打开下载页', cls: 'atlas-btn atlas-btn-primary' });
     download.addEventListener('click', () => window.open(CLOWDER_RELEASES_URL));
-    const docs = links.createEl('button', { text: '📖 安装说明', cls: 'atlas-btn' });
+    const docs = links.createEl('button', { text: '安装说明', cls: 'atlas-btn' });
     docs.addEventListener('click', () => window.open(CLOWDER_INSTALL_URL));
     guide.createEl('p', {
       text: '已经装好的话，先把猫咖打开再试；熟悉命令行也可以按安装说明从源码安装。地址不是默认的 localhost:3004 时，用「手动设置」填写。',
@@ -2666,7 +2324,7 @@ class CafeChatView extends obsidian.ItemView {
     });
   }
 
-  /** The passage attached to the next message: which one, and ✕; the draft's prompt asks what to do with it. */
+  /** The passage attached to the next message: which one, and its remove button; the draft's prompt asks what to do with it. */
   _renderPassage() {
     const row = this._passageRow;
     if (!row) return;  // offline layout
@@ -2680,12 +2338,12 @@ class CafeChatView extends obsidian.ItemView {
         : list.length > 1 ? `围绕这 ${list.length} 段选段提问（如「对比 #1 和 #2」），或开启研讨会…`
         : '告诉猫猫要做什么：讨论这段，还是直接改；继续选段可跨笔记累加，Enter 发送…';
     }
-    this._syncReadingNote();  // the 📎 whole-note toggle steps aside while a passage is attached, and comes back after
+    this._syncReadingNote();  // the whole-note (paperclip) toggle steps aside while a passage is attached, and comes back after
     if (!p) return;
     if (list.length > 1) {
       const head = row.createDiv('atlas-chat-passage-head');
-      head.createSpan({ text: `📌 交叉引用 · ${passagesLabel(list)}`, cls: 'atlas-chat-passage-label' });
-      const clear = head.createEl('button', { text: '清空 ✕', cls: 'atlas-chat-passage-clear', attr: { 'aria-label': '清空全部选段' } });
+      head.createSpan({ text: `交叉引用 · ${passagesLabel(list)}`, cls: 'atlas-chat-passage-label' });
+      const clear = head.createEl('button', { text: '清空', cls: 'atlas-chat-passage-clear', attr: { 'aria-label': '清空全部选段' } });
       clear.addEventListener('click', () => this.plugin.setChatPassages([]));
       const chips = row.createDiv({ cls: 'atlas-chat-passage-chips', attr: { role: 'list', 'aria-label': '已选跨文件段落列表' } });
       list.forEach((s, i) => {
@@ -2693,18 +2351,20 @@ class CafeChatView extends obsidian.ItemView {
         chip.createSpan({ text: `#${i + 1}`, cls: 'atlas-chat-passage-chip-idx' });
         const jump = chip.createEl('button', { text: `《${s.basename}》${passageLines(s)} · ${s.text.length} 字`, cls: 'atlas-chat-passage-chip-jump', attr: { title: `${s.path}\n${s.text.slice(0, 400)}` } });
         jump.addEventListener('click', () => this.plugin.jumpToPassage(s));
-        const remove = chip.createEl('button', { text: '✕', cls: 'atlas-chat-passage-chip-rm', attr: { 'aria-label': `移除第 ${i + 1} 段选段` } });
+        const remove = chip.createEl('button', { cls: 'atlas-chat-passage-chip-rm', attr: { 'aria-label': `移除第 ${i + 1} 段选段` } });
+      if (!setAtlasIcon(remove, ['x'])) remove.setText('移除');
         remove.addEventListener('click', () => this.plugin.setChatPassages(this.plugin.chatPassages.filter(item => item !== s)));
       });
       return;
     }
-    row.createSpan({ text: '📌', cls: 'atlas-chat-passage-icon', attr: { 'aria-hidden': 'true' } });
+    setAtlasIcon(row.createSpan({ cls: 'atlas-chat-passage-icon', attr: { 'aria-hidden': 'true' } }), ['text-quote', 'quote']);
     row.createSpan({
       text: `选段 · 《${p.basename}》${passageLines(p)} · ${p.text.length} 字`,
       cls: 'atlas-chat-passage-label',
       attr: { title: `只附带这一段，不附整篇笔记：\n${p.text.length > 400 ? `${p.text.slice(0, 400)}…` : p.text}` },
     });
-    const clear = row.createEl('button', { text: '✕', cls: 'atlas-chat-passage-clear', attr: { title: '不附带这段', 'aria-label': '不附带这段' } });
+    const clear = row.createEl('button', { cls: 'atlas-chat-passage-clear', attr: { title: '不附带这段', 'aria-label': '不附带这段' } });
+    if (!setAtlasIcon(clear, ['x'])) clear.setText('移除');
     clear.addEventListener('click', () => {
       this.plugin.setChatPassages([]);
     });
@@ -2824,7 +2484,7 @@ class CafeChatView extends obsidian.ItemView {
     this._strip = container.createEl('section', { cls: 'atlas-companion-strip', attr: { 'aria-label': '伴读席' } });
     const top = this._strip.createDiv('atlas-companion-strip-top');
     const titleGroup = top.createDiv('atlas-companion-title-group');
-    titleGroup.createSpan({ text: '🐾 伴读席', cls: 'atlas-companion-strip-title' });
+    titleGroup.createSpan({ text: '伴读席', cls: 'atlas-companion-strip-title' });
     this._presenceBadge = titleGroup.createSpan({ cls: 'atlas-companion-presence-badge' });
     this._seminarBtn = top.createEl('button', { text: '研讨会', cls: 'atlas-companion-seminar-pill' });
     this._seminarBtn.addEventListener('click', () => {
@@ -2837,7 +2497,7 @@ class CafeChatView extends obsidian.ItemView {
     this._noteLine = context.createSpan({ cls: 'atlas-companion-note' });
     this._presenceHint = context.createSpan({ cls: 'atlas-companion-hint' });
 
-    // ── Thread row (title shrinks; Hub and ⚙ stay) + the in-panel connection settings ⚙ opens ──
+    // ── Thread row (title shrinks; Hub and settings stay) + the in-panel connection settings the gear opens ──
     this._header = container.createDiv('atlas-chat-header');
     this._config = container.createDiv({ cls: 'atlas-chat-config', attr: { id: 'atlas-chat-config', hidden: '' } });
     this._renderHeader();
@@ -2855,7 +2515,7 @@ class CafeChatView extends obsidian.ItemView {
     this._passageRow = inputArea.createDiv({ cls: 'atlas-chat-passage', attr: { hidden: '' } });
     const inputTools = this._inputTools = inputArea.createDiv('atlas-chat-input-tools');
     this._ctxBtn = inputTools.createEl('button', { cls: 'atlas-chat-ctx-btn', attr: { 'aria-pressed': 'false' } });
-    this._ctxBtn.createSpan({ text: '📎', attr: { 'aria-hidden': 'true' } });
+    setAtlasIcon(this._ctxBtn.createSpan({ cls: 'atlas-icon', attr: { 'aria-hidden': 'true' } }), ['paperclip']);
     this._ctxLabel = this._ctxBtn.createSpan({ cls: 'atlas-chat-ctx-label' });
     this._ctxBtn.addEventListener('click', () => {
       this._attachNote = !this._attachNote;
@@ -2885,7 +2545,7 @@ class CafeChatView extends obsidian.ItemView {
     this._renderPassage();
   }
 
-  /** Thread picker, Hub and ⚙ — rebuilt in place when the cafe's thread list changes. */
+  /** Thread picker, Hub and settings — rebuilt in place when the cafe's thread list changes. */
   _renderHeader() {
     const header = this._header;
     const client = this.plugin.cafeClient;
@@ -2898,7 +2558,7 @@ class CafeChatView extends obsidian.ItemView {
       // from it (see _isCurrent); the unsent draft stays.
       const next = client.threads[0] || null;
       if ((next?.id ?? null) !== (this._threadId ?? null)) {
-        if (this._threadId) new obsidian.Notice(next ? `💬 当前对话已不在猫咖里，已切到「${next.title || '对话'}」` : '💬 当前对话已不在猫咖里');
+        if (this._threadId) new obsidian.Notice(next ? `当前对话已不在猫咖里，已切到「${next.title || '对话'}」` : '当前对话已不在猫咖里');
         this._threadId = next?.id ?? null;
         this._messages = [];
         this._messagesKey = null;
@@ -2920,23 +2580,24 @@ class CafeChatView extends obsidian.ItemView {
         await this._loadMessages();
       });
     } else {
-      const title = client.threads.length === 1 ? `💬 ${client.threads[0].title || '对话'}` : '💬 猫咖对话流';
+      const title = client.threads.length === 1 ? (client.threads[0].title || '对话') : '猫咖对话流';
       header.createEl('span', { text: title, cls: 'atlas-chat-thread-name', attr: { title } });
     }
 
-    // ＋ opens a conversation of its own (see startNewConversation); an attached passage goes along
+    // + opens a conversation of its own (see startNewConversation); an attached passage goes along
     const newBtn = header.createEl('button', {
-      text: '＋',
       cls: 'atlas-chat-new-btn',
       attr: { title: '新开对话：在猫咖里新建一个对话，附着的选段会跟过去', 'aria-label': '新开对话' },
     });
+    if (!setAtlasIcon(newBtn, ['plus'])) newBtn.setText('+');
     newBtn.addEventListener('click', () => this.plugin.startNewConversation());
 
     const hubBtn = header.createEl('button', {
-      text: '↗ Hub',
+      text: 'Hub',
       cls: 'atlas-chat-hub-btn',
       attr: { title: '在浏览器中打开此对话' }
     });
+    addAtlasIcon(hubBtn, ['arrow-up-right', 'external-link']);
     hubBtn.addEventListener('click', () => {
       if (this._threadId) {
         // Same page route the Hub web app links to: /thread/<id> (singular). /threads/<id> is a 404.
@@ -2947,10 +2608,10 @@ class CafeChatView extends obsidian.ItemView {
     });
 
     const cfgBtn = header.createEl('button', {
-      text: '⚙',
       cls: 'atlas-chat-config-btn',
       attr: { title: '猫咖连接与设置', 'aria-label': '猫咖连接与设置', 'aria-controls': 'atlas-chat-config', 'aria-expanded': String(Boolean(this._config && !this._config.hidden)) },
     });
+    if (!setAtlasIcon(cfgBtn, ['settings', 'settings-2'])) cfgBtn.setText('设置');
     cfgBtn.addEventListener('click', () => this._toggleConfig());
   }
 
@@ -2968,11 +2629,11 @@ class CafeChatView extends obsidian.ItemView {
     this._configStatus = box.createEl('p', { cls: 'atlas-chat-config-status' });
     this._renderConfigStatus();
     const actions = box.createDiv('atlas-chat-config-row');
-    const refreshBtn = actions.createEl('button', { text: '↻ 刷新伙伴与对话', cls: 'atlas-chat-config-action' });
+    const refreshBtn = actions.createEl('button', { text: '刷新伙伴与对话', cls: 'atlas-chat-config-action' });
     refreshBtn.addEventListener('click', async () => {
       refreshBtn.disabled = true;
       const r = await plugin.refreshCafe();  // panels, and this box, refresh in place
-      new obsidian.Notice(r.ok ? `↻ 已刷新：${r.cats} 只伙伴 · ${r.threads} 条对话` : `⚠️ 刷新失败：${r.error || '无法连接猫咖'}`);
+      new obsidian.Notice(r.ok ? `已刷新：${r.cats} 只伙伴 · ${r.threads} 条对话` : `刷新失败：${r.error || '无法连接猫咖'}`);
       if (refreshBtn.isConnected) refreshBtn.disabled = false;
     });
     const offBtn = actions.createEl('button', { text: '断开连接', cls: 'atlas-chat-config-action' });
@@ -2990,8 +2651,8 @@ class CafeChatView extends obsidian.ItemView {
     const plugin = this.plugin;
     const client = plugin.cafeClient;
     this._configStatus.setText(plugin.isCafeConnected
-      ? `✅ 已连接 · ${plugin.settings.catCafeAddress} · ${client.cats.length} 只伙伴 · ${client.threads.length} 条对话`
-      : `❌ 未连接：${client?.lastError || '连接失败'}`);
+      ? `已连接 · ${plugin.settings.catCafeAddress} · ${client.cats.length} 只伙伴 · ${client.threads.length} 条对话`
+      : `未连接：${client?.lastError || '连接失败'}`);
   }
 
   /** Address field + 保存并连接 (also in the offline panel), plus the way to the rest of the plugin settings. */
@@ -3057,7 +2718,7 @@ class CafeChatView extends obsidian.ItemView {
 
     const request = passage ? passageMessage(passage, content) : content;
     let fullContent = request;
-    if (this._attachNote && !passage) {  // a passage goes alone — never with the whole note, whatever 📎 was left at
+    if (this._attachNote && !passage) {  // a passage goes alone — never with the whole note, whatever the whole-note toggle was left at
       const file = this.app.workspace.getActiveFile();
       if (file) {
         const noteContent = await this.app.vault.read(file);
@@ -3079,7 +2740,7 @@ class CafeChatView extends obsidian.ItemView {
     }
 
     if (fullContent.length > 100000) {
-      new obsidian.Notice('⚠️ 选段、提问与来源标签合计超过猫咖一条消息上限，请减少部分选段或提问');
+      new obsidian.Notice('选段、提问与来源标签合计超过猫咖一条消息上限，请减少部分选段或提问');
       return;
     }
     this._sending = true;
@@ -3115,7 +2776,7 @@ class CafeChatView extends obsidian.ItemView {
       // The record lives with the plugin and in its data, not in this panel's input or layout, so going offline,
       // reconnecting or restarting Obsidian does not lose it.
       const reason = err.message || '未知错误';
-      new obsidian.Notice(`⚠️ 消息发送失败：${reason}。已留在对话里，可以重发或放回输入框`);
+      new obsidian.Notice(`消息发送失败：${reason}。已留在对话里，可以重发或放回输入框`);
       await this.plugin.recordFailedSend({ id, cafe, threadId, content, fullContent, ...(passage ? { passage: passages[0], passages, revisionId } : {}), error: reason, at: sentAt });
       if (passage) await this.plugin.consumeChatPassages(passages);
     } finally {
@@ -3155,14 +2816,14 @@ class CafeChatView extends obsidian.ItemView {
     const busy = this.plugin.isResending(record.id);
     const place = where === 'elsewhere' ? (record.cafe ? `（原本发往另一个猫咖：${record.cafe}）` : '（来源猫咖未记录）')
       : where === 'gone' ? '（原对话已不在猫咖里）' : where === 'lobby' ? '（发往猫咖默认大厅）' : '';
-    footerRow.createEl('span', { text: busy ? '↻ 正在重发…' : `⚠️ 发送失败${place}：${record.error}`, cls: 'atlas-chat-failed-note' });
+    footerRow.createEl('span', { text: busy ? '正在重发…' : `发送失败${place}：${record.error}`, cls: 'atlas-chat-failed-note' });
     const row = bubble.createDiv('atlas-chat-msg-actions');
     if (where === null || where === 'lobby') {  // never retargeted: no 重发 to a deleted thread or another cafe
-      const retry = row.createEl('button', { text: busy ? '重发中…' : '↻ 重发', cls: 'atlas-chat-action-pill', attr: { title: '把原来的内容再发一次，发往原来的猫咖和对话' } });
+      const retry = row.createEl('button', { text: busy ? '重发中…' : '重发', cls: 'atlas-chat-action-pill', attr: { title: '把原来的内容再发一次，发往原来的猫咖和对话' } });
       retry.disabled = busy;
       retry.addEventListener('click', () => this._resendFailed(record));
     }
-    const back = row.createEl('button', { text: '↩ 放回输入框', cls: 'atlas-chat-action-pill', attr: { title: '放回输入框；已经写了新内容的话，接在后面' } });
+    const back = row.createEl('button', { text: '放回输入框', cls: 'atlas-chat-action-pill', attr: { title: '放回输入框；已经写了新内容的话，接在后面' } });
     back.disabled = busy;
     back.addEventListener('click', () => this._putBackFailed(record));
     const drop = row.createEl('button', { text: '删除', cls: 'atlas-chat-action-pill' });
@@ -3177,7 +2838,7 @@ class CafeChatView extends obsidian.ItemView {
     if (passages.length) {
       const attached = this.plugin.chatPassages;
       if (attached.length && (attached.length !== passages.length || attached.some((p, i) => !samePassage(p, passages[i])))) {
-        new obsidian.Notice('💡 输入框上已经附着另一段选段：先发送或去掉它，再放回这条');
+        new obsidian.Notice('输入框上已经附着另一段选段：先发送或去掉它，再放回这条');
         return;
       }
       await this.plugin.setChatPassages(passages);
@@ -3207,12 +2868,12 @@ class CafeChatView extends obsidian.ItemView {
       if (record.revisionId) await plugin.bindRevisionMessage(record.revisionId, resp?.userMessageId);  // it is the same request, sent again
       plugin.endResend(record.id);
       await plugin.dropFailedSend(record.id);
-      new obsidian.Notice('↻ 已重发');
+      new obsidian.Notice('已重发');
       if ((record.threadId ?? null) === (this._threadId ?? null)) { this._loadMessages(); this._pollSoon(); }
     } catch (err) {
       plugin.endResend(record.id);
       const reason = err.message || '未知错误';
-      new obsidian.Notice(`⚠️ 重发失败：${reason}`);
+      new obsidian.Notice(`重发失败：${reason}`);
       // still kept, with the new reason — unless it was deleted meanwhile
       if (plugin.getFailedSends().some((r) => r.id === record.id)) await plugin.recordFailedSend({ ...record, error: reason });
       else plugin._renderChatMessages();
@@ -3255,7 +2916,7 @@ class CafeChatView extends obsidian.ItemView {
     if (this._messages.length === 0 && failed.length === 0) {
       this._messageArea.createDiv({
         text: this._threadId
-          ? '暂无消息 — 召唤猫猫伴读或发起研讨会，讨论结论可存为待结晶笔记 💎'
+          ? '暂无消息 — 召唤猫猫伴读或发起研讨会，讨论结论可存为待结晶笔记'
           : '这个库在猫咖里还没有对话 — 发出的消息会进入猫咖的默认大厅',
         cls: 'atlas-chat-empty'
       });
@@ -3308,14 +2969,14 @@ class CafeChatView extends obsidian.ItemView {
 
     if (isLong) {
       const toggleBtn = bubble.createEl('button', {
-        text: expanded ? '🔼 收起全文' : `📖 展开全文 (${content.length} 字)`,
+        text: expanded ? '收起全文' : `展开全文 (${content.length} 字)`,
         cls: 'atlas-chat-expand-btn'
       });
       toggleBtn.addEventListener('click', () => {
         expanded = !expanded;
         if (expanded) this._expanded.add(msg.id); else this._expanded.delete(msg.id);
         textEl.textContent = expanded ? content : content.substring(0, 600) + '…';
-        toggleBtn.textContent = expanded ? '🔼 收起全文' : `📖 展开全文 (${content.length} 字)`;
+        toggleBtn.textContent = expanded ? '收起全文' : `展开全文 (${content.length} 字)`;
       });
     }
 
@@ -3332,7 +2993,7 @@ class CafeChatView extends obsidian.ItemView {
     }
     if (writing) footerRow.createEl('span', { text: '回复中…', cls: 'atlas-chat-pending' });
     const ended = { failed: '回复失败', canceled: '回复已取消', interrupted: '回复中断' }[state];
-    if (ended) footerRow.createEl('span', { text: `⚠️ ${ended}`, cls: 'atlas-chat-pending' });
+    if (ended) footerRow.createEl('span', { text: ended, cls: 'atlas-chat-pending' });
     if (msg._failed) this._renderFailedParts(bubble, footerRow, msg._failed);
 
     // Bring cat insights back into Obsidian: save as a pending note (crystallized after review) or append — once the
@@ -3340,7 +3001,7 @@ class CafeChatView extends obsidian.ItemView {
     if (!isUser && !writing && content.trim().length > 0) {
       const actRow = bubble.createDiv('atlas-chat-msg-actions');
       const saveBtn = actRow.createEl('button', {
-        text: '💎 存为待结晶笔记',
+        text: '存为待结晶笔记',
         cls: 'atlas-chat-action-pill',
         attr: { title: '存进待结晶目录并关联这次请求的源笔记；审阅后在透镜里点亮结晶' }
       });
@@ -3350,7 +3011,7 @@ class CafeChatView extends obsidian.ItemView {
       });
 
       const appBtn = actRow.createEl('button', {
-        text: '📥 摘录到当前笔记',
+        text: '摘录到当前笔记',
         cls: 'atlas-chat-action-pill',
         attr: { title: '将这条猫猫回复作为引用块追加到当前打开的笔记末尾' }
       });
@@ -3373,7 +3034,7 @@ class CafeChatView extends obsidian.ItemView {
     if (target) {
       const inUse = target.original === revised;
       const apply = row.createEl('button', {
-        text: inUse ? '✓ 已采用' : '✏️ 替换原段落',
+        text: inUse ? '已采用' : '替换原段落',
         cls: 'atlas-chat-action-pill',
         attr: { title: inUse ? '笔记里现在就是这一版' : `先对照原文，再替换《${target.path.split('/').pop().replace(/\.md$/, '')}》${passageLines(target)}` },
       });
@@ -3381,7 +3042,7 @@ class CafeChatView extends obsidian.ItemView {
       apply.addEventListener('click', () => new RevisionModal(this.app, this.plugin, target.id, revised).open());
     }
     const copy = row.createEl('button', {
-      text: '📋 复制修改稿',
+      text: '复制修改稿',
       cls: 'atlas-chat-action-pill',
       attr: target ? {} : { title: reason === 'multi' ? '这是多段选段交叉引用的综合稿，请复制后按需粘贴' : reason === 'several'
         ? '这条回复同时回答了几次选段请求，分不清改的是哪一段：可以复制后自己粘贴'
@@ -3389,7 +3050,7 @@ class CafeChatView extends obsidian.ItemView {
     });
     copy.addEventListener('click', async () => {
       await navigator.clipboard.writeText(revised);
-      new obsidian.Notice('📋 修改稿已复制');
+      new obsidian.Notice('修改稿已复制');
     });
   }
 
@@ -3472,12 +3133,12 @@ class RevisionModal extends obsidian.Modal {
     contentEl.empty();
     contentEl.addClass('atlas-revision-modal');
     const name = t ? t.path.split('/').pop().replace(/\.md$/, '') : '';
-    contentEl.createEl('h3', { text: t ? `✏️ 替换《${name}》${passageLines(t)}` : '✏️ 替换原段落' });
+    contentEl.createEl('h3', { text: t ? `替换《${name}》${passageLines(t)}` : '替换原段落' });
     const file = t ? this.app.vault.getAbstractFileByPath(t.path) : null;
     const found = !t ? { offset: -1, reason: '这份修改稿对应的选段记录已不存在' }
       : file instanceof obsidian.TFile ? locatePassage(await this.plugin._currentText(file), t)
       : { offset: -1, reason: `找不到笔记「${t.path}」` };
-    if (found.offset < 0) contentEl.createEl('p', { text: `⚠️ ${found.reason}。可以复制修改稿，自己粘贴到合适的位置。`, cls: 'atlas-revision-problem' });
+    if (found.offset < 0) contentEl.createEl('p', { text: `${found.reason}。可以复制修改稿，自己粘贴到合适的位置。`, cls: 'atlas-revision-problem' });
     if (t) {
       contentEl.createDiv({ text: '原文', cls: 'atlas-revision-label' });
       contentEl.createEl('pre', { text: t.original, cls: 'atlas-revision-text' });
@@ -3491,18 +3152,18 @@ class RevisionModal extends obsidian.Modal {
       replace.disabled = true;
       const result = await this.plugin.applyRevision({ id: this.requestId }, this.revised);
       if (!result.ok) {
-        new obsidian.Notice(`⚠️ 没有替换：${result.reason}`);
+        new obsidian.Notice(`没有替换：${result.reason}`);
         replace.disabled = false;
         return;
       }
-      new obsidian.Notice(`✏️ 已替换《${name}》里的这段，Cmd+Z 可以撤销`);
+      new obsidian.Notice(`已替换《${name}》里的这段，Cmd+Z 可以撤销`);
       this.close();
       this.plugin._renderChatMessages();
     });
     const copy = row.createEl('button', { text: '复制修改稿' });
     copy.addEventListener('click', async () => {
       await navigator.clipboard.writeText(this.revised);
-      new obsidian.Notice('📋 修改稿已复制');
+      new obsidian.Notice('修改稿已复制');
     });
     const cancel = row.createEl('button', { text: '取消' });
     cancel.addEventListener('click', () => this.close());
@@ -3553,7 +3214,7 @@ class SeminarModal extends obsidian.Modal {
     contentEl.addClass('atlas-seminar-modal');
 
     // Title
-    contentEl.createEl('h2', { text: '🎓 组织猫猫研讨会' });
+    contentEl.createEl('h2', { text: '组织猫猫研讨会' });
     contentEl.createEl('p', {
       text: '勾选参会猫猫并设定议题，猫猫们会在右侧对话流展开多视角碰撞，结论可存为待结晶笔记，审过再点亮。',
       cls: 'atlas-seminar-desc',
@@ -3577,25 +3238,25 @@ class SeminarModal extends obsidian.Modal {
     const passage = this._passage;
     const passageTitle = passage ? `《${passage.basename}》${passageLines(passage)}这段` : '';
     (this._passages.length > 1 ? [
-      { label: '🔗 交叉比对异同', text: '请交叉比对以上选段的核心概念、共识和关键分歧，标明 [#序号] 与源笔记双链。' },
-      { label: '🧭 证据链与因果推演', text: '请串联这些选段的证据链，区分事实与推论，指出逻辑断层和待补反例。' },
-      { label: '✨ 综合提炼结晶卡', text: '请综合这些选段提炼知识卡片，包含核心命题、跨篇源文对照与待验证问题。' },
-      { label: '⚔️ 正反交锋辩论', text: '请从不同视角辨析这些选段的论据、隐含前提与适用边界，引用时标明 [#序号]。' },
+      { label: '交叉比对异同', text: '请交叉比对以上选段的核心概念、共识和关键分歧，标明 [#序号] 与源笔记双链。' },
+      { label: '证据链与因果推演', text: '请串联这些选段的证据链，区分事实与推论，指出逻辑断层和待补反例。' },
+      { label: '综合提炼结晶卡', text: '请综合这些选段提炼知识卡片，包含核心命题、跨篇源文对照与待验证问题。' },
+      { label: '正反交锋辩论', text: '请从不同视角辨析这些选段的论据、隐含前提与适用边界，引用时标明 [#序号]。' },
     ] : passage ? [
-      { label: '🔍 审阅这段', text: `请从各自专长审阅${passageTitle}：论证是否成立、表达是否清楚、还能补充什么。` },
-      { label: '✏️ 各改一版', text: `请每只猫各自给出${passageTitle}的修改稿，并说明改了什么、为什么。` },
-      { label: '⚡ 正反辩论', text: `请围绕${passageTitle}的核心说法展开正反辩论：它在什么情况下成立，什么情况下会失效？` },
+      { label: '审阅这段', text: `请从各自专长审阅${passageTitle}：论证是否成立、表达是否清楚、还能补充什么。` },
+      { label: '各改一版', text: `请每只猫各自给出${passageTitle}的修改稿，并说明改了什么、为什么。` },
+      { label: '正反辩论', text: `请围绕${passageTitle}的核心说法展开正反辩论：它在什么情况下成立，什么情况下会失效？` },
     ] : [
       {
-        label: '🔍 审阅笔记盲区',
+        label: '审阅笔记盲区',
         text: `请从各自专长审阅${noteTitle}的核心论点、潜在盲区与可补充的关联知识，并给出具体改进建议。`,
       },
       {
-        label: '⚡ 多视角正反辩论',
+        label: '多视角正反辩论',
         text: `请围绕${noteTitle}中的核心机制展开多视角碰撞：它最大的优势是什么？在极端场景下有哪些失效风险？`,
       },
       {
-        label: '✨ 提炼结晶要点',
+        label: '提炼结晶要点',
         text: `请帮我将${noteTitle}提炼为高密度的 Atlas 知识结晶卡片（包含 TL;DR、核心机制对比、对我们的启发）。`,
       },
     ]).forEach((p) => {
@@ -3631,8 +3292,8 @@ class SeminarModal extends obsidian.Modal {
       const row = contentEl.createDiv('atlas-seminar-attach');
       const where = this._passages.length > 1 ? passagesLabel(this._passages) : `《${passage.basename}》${passageLines(passage)}`;
       const label = () => this._passages.length > 1
-        ? `📌 ${this._attachPassage ? '✓ 已附带' : '附带'} ${where}`
-        : (this._attachPassage ? `📌 ✓ 已附带选段：${where}（${passage.text.length} 字）` : `📌 附带选段：${where}`);
+        ? `${this._attachPassage ? '已附带' : '附带'} ${where}`
+        : (this._attachPassage ? `已附带选段：${where}（${passage.text.length} 字）` : `附带选段：${where}`);
       const btn = row.createEl('button', { text: label(), cls: `atlas-btn atlas-seminar-attach-btn ${this._attachPassage ? 'is-active' : ''}` });
       const details = this._passages.length > 1 ? row.createDiv('atlas-seminar-passage-list') : null;
       if (details) this._passages.forEach((p, i) => details.createSpan({ text: `#${i + 1} 《${p.basename}》${passageLines(p)}`, cls: 'atlas-seminar-passage-chip', attr: { title: `${p.path}\n${p.text.slice(0, 400)}` } }));
@@ -3652,16 +3313,16 @@ class SeminarModal extends obsidian.Modal {
       if (passage && this._attachPassage) attachRow.style.display = 'none';
       const attachBtn = attachRow.createEl('button', {
         text: this._attachNote
-          ? `📎 ✓ 已附带笔记「${this._targetFile.basename}」作为研讨材料`
-          : `📎 附带笔记「${this._targetFile.basename}」`,
+          ? `已附带笔记「${this._targetFile.basename}」作为研讨材料`
+          : `附带笔记「${this._targetFile.basename}」`,
         cls: `atlas-btn atlas-seminar-attach-btn ${this._attachNote ? 'is-active' : ''}`,
       });
       attachBtn.addEventListener('click', () => {
         this._attachNote = !this._attachNote;
         attachBtn.toggleClass('is-active', this._attachNote);
         attachBtn.textContent = this._attachNote
-          ? `📎 ✓ 已附带笔记「${this._targetFile.basename}」作为研讨材料`
-          : `📎 附带笔记「${this._targetFile.basename}」`;
+          ? `已附带笔记「${this._targetFile.basename}」作为研讨材料`
+          : `附带笔记「${this._targetFile.basename}」`;
       });
     }
 
@@ -3670,7 +3331,7 @@ class SeminarModal extends obsidian.Modal {
     // Start button + hint
     const startRow = contentEl.createDiv('atlas-seminar-start-row');
     const startBtn = this._startBtn = startRow.createEl('button', {
-      text: '🐾 立即开会 · 打开右侧研讨流',
+      text: '立即开会 · 打开右侧研讨流',
       cls: 'atlas-btn atlas-btn-primary atlas-seminar-start',
     });
     startBtn.addEventListener('click', () => this._start());
@@ -3687,7 +3348,7 @@ class SeminarModal extends obsidian.Modal {
     const threads = this._client?.threads || [];
     box.createEl('label', { text: '3. 在哪开会', cls: 'atlas-seminar-label' });
     const row = box.createDiv({ cls: 'atlas-seminar-where', attr: { role: 'group', 'aria-label': '在哪开会' } });
-    this._whereBtns = [['new', '🆕 新开对话'], ['existing', '💬 用现有对话']].map(([where, text]) => {
+    this._whereBtns = [['new', '新开对话'], ['existing', '用现有对话']].map(([where, text]) => {
       const b = row.createEl('button', { text, cls: 'atlas-btn atlas-seminar-where-btn', attr: { 'data-where': where } });
       b.addEventListener('click', () => { this._where = where; this._syncWhere(); });
       return b;
@@ -3716,7 +3377,7 @@ class SeminarModal extends obsidian.Modal {
       ? '发到选中的对话里，默认是右侧对话栏正在看的那个。'
       : opened
         ? `新对话「${opened.title}」已经建好，再点开会会发到这里。`
-        : '新建一个对话来开会，先叫「🎓 研讨会 · …」；第一只发言的猫猫会按讨论内容给它起名。';
+        : '新建一个对话来开会，先叫「研讨会 · …」；第一只发言的猫猫会按讨论内容给它起名。';
   }
 
   _renderCatOption(grid, cat, client) {
@@ -3733,8 +3394,8 @@ class SeminarModal extends obsidian.Modal {
       item.createEl('span', { text: profile.breed, cls: 'atlas-seminar-cat-breed' });
     }
 
-    const check = item.createDiv('atlas-seminar-check');
-    check.textContent = '✓';
+    const check = item.createDiv({ cls: 'atlas-seminar-check', attr: { 'aria-hidden': 'true' } });
+    setAtlasIcon(check, ['check']);
 
     item.addEventListener('click', () => {
       if (this._selected.has(cat.id)) {
@@ -3765,18 +3426,18 @@ class SeminarModal extends obsidian.Modal {
     if (this.plugin.cafeClient !== this._client) return this._void();  // connected otherwise since the dialog opened
     const topic = this._topicInput?.value?.trim();
     if (!topic) {
-      new obsidian.Notice('💡 请输入讨论议题');
+      new obsidian.Notice('请输入讨论议题');
       return;
     }
     if (this._selected.size === 0) {
-      new obsidian.Notice('💡 请至少选择一只猫猫');
+      new obsidian.Notice('请至少选择一只猫猫');
       return;
     }
     this._setBusy(true);
     try {
       await this._open(topic);
     } catch (err) {  // the modal stays open, so the seminar can be started again from here
-      new obsidian.Notice('⚠️ 研讨会发起失败: ' + (err.message || '未知错误'));
+      new obsidian.Notice('研讨会发起失败：' + (err.message || '未知错误'));
     } finally {
       this._setBusy(false);
     }
@@ -3784,7 +3445,7 @@ class SeminarModal extends obsidian.Modal {
 
   /** The plugin is no longer on this dialog's connection: it starts nothing more; opened again, it starts afresh there. */
   _void() {
-    new obsidian.Notice('⚠️ 猫咖连接已经变了，这次研讨会没有发出；请重新打开研讨会，在现在连接的猫咖里开');
+    new obsidian.Notice('猫咖连接已经变了，这次研讨会没有发出；请重新打开研讨会，在现在连接的猫咖里开');
     this.close();
   }
 
@@ -3794,7 +3455,7 @@ class SeminarModal extends obsidian.Modal {
     if (!this._startBtn) return;
     this._startLabel ??= this._startBtn.textContent;
     this._startBtn.disabled = on;
-    this._startBtn.textContent = on ? '⏳ 正在开会…' : this._startLabel;
+    this._startBtn.textContent = on ? '正在开会…' : this._startLabel;
   }
 
   /** Send the seminar message to its conversation (opening a new one first, if so chosen), then show it in the panel. */
@@ -3819,7 +3480,7 @@ class SeminarModal extends obsidian.Modal {
     });
 
     // Build structured seminar message with standalone @mentions for A2A routing
-    let content = `🎓 **猫咖研讨会**\n\n`;
+    let content = `**猫咖研讨会**\n\n`;
     content += `**议题**：${topic}\n`;
     content += `**参会猫猫**：${catNames.join('、')}\n\n`;
 
@@ -3828,13 +3489,13 @@ class SeminarModal extends obsidian.Modal {
     if (this._attachNote && this._targetFile && !passage) {
       const noteContent = await this.app.vault.read(this._targetFile);
       const preview = noteContent.substring(0, 1500);
-      content += `---\n📎 参考笔记「${this._targetFile.basename}」：\n\n${preview}${noteContent.length > 1500 ? '\n...(全文 ' + noteContent.length + ' 字)' : ''}\n\n---\n\n`;
+      content += `---\n参考笔记「${this._targetFile.basename}」：\n\n${preview}${noteContent.length > 1500 ? '\n...(全文 ' + noteContent.length + ' 字)' : ''}\n\n---\n\n`;
     }
     if (passages.length > 1) {
       content += passagesMessage(passages, topic) + '\n\n';
     } else if (passage) {
       const fence = passageFence(passage.text);
-      content += `---\n📌 选段 · 《${passage.basename}》${passageLines(passage)}：\n\n${fence}\n${passage.text}\n${fence}\n\n---\n\n`;
+      content += `---\n选段 · 《${passage.basename}》${passageLines(passage)}：\n\n${fence}\n${passage.text}\n${fence}\n\n---\n\n`;
       content += `如果要给出修改，请把改好的完整段落放进一个 ${fence}修改稿 代码块（只放改好的正文），说明写在代码块外。\n\n`;
     }
 
@@ -3873,17 +3534,17 @@ class SeminarModal extends obsidian.Modal {
 
     const moved = !current();  // sent, to this dialog's cafe, while the plugin has come to another connection
     new obsidian.Notice(moved
-      ? `🎓 研讨会已发到原来连接的猫咖（${client.baseUrl}）；猫咖连接已经换了，对话栏不会切过去`
+      ? `研讨会已发到原来连接的猫咖（${client.baseUrl}）；猫咖连接已经换了，对话栏不会切过去`
       : opensNew
-        ? `🎓 研讨会已在新对话「${this._opening.thread.title}」开启！${catNames.join('、')} 正在右侧对话栏准备发言...`
-        : `🎓 研讨会已开启！${catNames.join('、')} 正在右侧对话栏准备发言...`);
+        ? `研讨会已在新对话「${this._opening.thread.title}」开启！${catNames.join('、')} 正在右侧对话栏准备发言...`
+        : `研讨会已开启！${catNames.join('、')} 正在右侧对话栏准备发言...`);
     this.close();
     if (passage) await this.plugin.consumeChatPassages(passages);
     if (moved) return;
     const shown = opensNew
       ? await this.plugin.showNewConversation(client, threadId)
       : (await this.plugin.openCafeChat({ threadId, client })) !== false;
-    if (!shown) new obsidian.Notice('💬 猫咖连接已经换了，对话栏没有切到这场研讨会的对话');
+    if (!shown) new obsidian.Notice('猫咖连接已经换了，对话栏没有切到这场研讨会的对话');
   }
 
   onClose() {
@@ -3896,7 +3557,7 @@ class SeminarModal extends obsidian.Modal {
 // ═══════════════════════════════════════════════
 class ClowderAtlasPlugin extends obsidian.Plugin {
   get chatPassages() { return this.settings?.chatPassages || []; }
-  set chatPassages(input) { this.settings.chatPassages = normalizePassages(input); }
+  set chatPassages(input) { this.settings.chatPassages = normalizePassages(input); this._refreshLensViews(); }
   get chatPassage() { return this.chatPassages[0] || null; }
   set chatPassage(input) { this.chatPassages = input; }
 
@@ -3913,7 +3574,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
   async jumpToPassage(p) {
     const file = this.app.vault.getAbstractFileByPath(p.path);
-    if (!(file instanceof obsidian.TFile)) return new obsidian.Notice('⚠️ 找不到选段源笔记；引用篮仍保留原选段');
+    if (!(file instanceof obsidian.TFile)) return new obsidian.Notice('找不到选段源笔记；引用篮仍保留原选段');
     const leaf = this.app.workspace.getLeaf(false);
     await leaf.openFile(file, { active: true, eState: { line: p.from.line } });
     leaf.view?.editor?.setSelection(p.from, p.to);
@@ -3921,6 +3582,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
   }
   async onload() {
     console.log('Clowder Atlas: Loading plugin...');
+    this._purgeLegacyDocumentDecorations();
 
     await this.loadSettings();
     this.summonedCatIds = new Set(this.settings.summonedCats || []);
@@ -3989,19 +3651,19 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
     this.addCommand({
       id: 'open-star-chart',
-      name: 'Open Star Chart ★',
+      name: 'Open Star Chart',
       callback: () => this.openStarChart(),
     });
 
     this.addCommand({
       id: 'open-cafe-chat',
-      name: 'Open Cat Cafe Chat ☕',
+      name: 'Open Cat Cafe Chat',
       callback: () => this.openCafeChat(),
     });
 
     this.addCommand({
       id: 'ask-cats-about-note',
-      name: 'Ask Cats About This Note 🐾',
+      name: 'Ask Cats About This Note',
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
         if (!file || !this.isCafeConnected) return false;
@@ -4014,11 +3676,11 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     // writes to them — not to which menu item was picked.
     this.registerEvent(this.app.workspace.on('editor-menu', (menu, editor, view) => {
       if (!editor.somethingSelected() || !view?.file) return;
-      menu.addItem((item) => item.setTitle('🐾 把选中段落交给猫猫').setIcon('message-circle').onClick(() => this.askAboutPassage(editor, view)));
+      menu.addItem((item) => item.setTitle('把选中段落交给猫猫').setIcon('message-circle').onClick(() => this.askAboutPassage(editor, view)));
     }));
     this.addCommand({
       id: 'ask-about-selection',
-      name: 'Ask Cats About Selection 🐾',
+      name: 'Ask Cats About Selection',
       editorCheckCallback: (checking, editor, view) => {
         if (!editor.somethingSelected() || !view?.file) return false;
         if (!checking) this.askAboutPassage(editor, view);
@@ -4028,25 +3690,25 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
     this.addCommand({
       id: 'organize-seminar',
-      name: 'Organize Cat Seminar 🎓',
+      name: 'Organize Cat Seminar',
       callback: () => this.openSeminarModal(),
     });
 
     this.addCommand({
       id: 'new-cafe-conversation',
-      name: 'New Cat Cafe Conversation 💬',
+      name: 'New Cat Cafe Conversation',
       callback: () => this.startNewConversation(),
     });
 
     // Single ribbon icon with coherent menu
     this.addRibbonIcon('cat', 'Clowder Atlas', (evt) => {
       const menu = new obsidian.Menu();
-      menu.addItem(item => item.setTitle('🔍 溯源透镜（右侧伴读台）').setIcon('eye').onClick(() => this.activateLens()));
-      menu.addItem(item => item.setTitle('💬 猫咖对话（右侧研讨流）').setIcon('message-circle').onClick(() => this.openCafeChat()));
-      menu.addItem(item => item.setTitle('🎓 针对当前笔记开研讨会').setIcon('graduation-cap').onClick(() => this.openSeminarModal()));
+      menu.addItem(item => item.setTitle('溯源透镜（右侧伴读台）').setIcon('eye').onClick(() => this.activateLens()));
+      menu.addItem(item => item.setTitle('猫咖对话（右侧研讨流）').setIcon('message-circle').onClick(() => this.openCafeChat()));
+      menu.addItem(item => item.setTitle('针对当前笔记开研讨会').setIcon('graduation-cap').onClick(() => this.openSeminarModal()));
       menu.addSeparator();
-      menu.addItem(item => item.setTitle('✦ 3D 记忆星图').setIcon('star').onClick(() => this.openStarChart()));
-      menu.addItem(item => item.setTitle('🎨 生成 2D 知识画布').setIcon('layout-grid').onClick(() => this.generateCanvas()));
+      menu.addItem(item => item.setTitle('3D 记忆星图').setIcon('star').onClick(() => this.openStarChart()));
+      menu.addItem(item => item.setTitle('生成 2D 知识画布').setIcon('layout-grid').onClick(() => this.generateCanvas()));
       menu.showAtMouseEvent(evt);
     });
 
@@ -4057,13 +3719,9 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     // Add settings tab
     this.addSettingTab(new ClowderAtlasSettingTab(this.app, this));
 
-    // Register CSS classes on body for luminance
-    this.registerMarkdownPostProcessor((el, ctx) => {
-      this.postProcessMarkdown(el, ctx);
-    });
-
     // Auto-open on layout ready — Star Chart + Provenance Lens
     this.app.workspace.onLayoutReady(() => {
+      this._purgeLegacyDocumentDecorations();
       this.updateStatusBar();
       // The cat playground was folded into the companion strip (0.8.3); close its tabs left in saved layouts.
       for (const leaf of this.app.workspace.getLeavesOfType('clowder-atlas-cat-playground')) leaf.detach();
@@ -4082,15 +3740,27 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     }
 
     console.log('Clowder Atlas: Plugin loaded successfully!');
-    new obsidian.Notice('🐾 Clowder Atlas 已就绪 — 探索你的知识花园');
+    new obsidian.Notice('Clowder Atlas 已就绪');
   }
 
   onunload() {
+    this._purgeLegacyDocumentDecorations();
     if (this.cafeClient) {
       this.cafeClient.destroy();
       this.cafeClient = null;
     }
     console.log('Clowder Atlas: Plugin unloaded');
+  }
+
+  _purgeLegacyDocumentDecorations() {
+    // Only old document decorations, including Markdown leaves in other app windows.
+    // Load handles plugin toggles; layout-ready handles restored notes; unload finishes teardown.
+    const classes = Object.values(LUMINANCE_STATES).map(state => state.cssClass);
+    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+      const root = leaf.view.containerEl;
+      root.querySelectorAll('.atlas-reading-banner').forEach(el => el.remove());
+      root.querySelectorAll(classes.map(cls => `.${cls}`).join(',')).forEach(el => el.classList.remove(...classes));
+    }
   }
 
   async loadSettings() {
@@ -4121,10 +3791,10 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     const name = cat?.nickname || cat?.displayName || cat?.name || catId;
     if (this.summonedCatIds.has(catId)) {
       this.summonedCatIds.delete(catId);
-      new obsidian.Notice(`👋 ${name} 先去休息啦`);
+      new obsidian.Notice(`${name} 已离开伴读席`);
     } else {
       this.summonedCatIds.add(catId);
-      new obsidian.Notice(`✨ 已召唤 ${name} 到伴读席！`);
+      new obsidian.Notice(`已召唤 ${name} 到伴读席`);
     }
     this.settings.summonedCats = [...this.summonedCatIds];
     await this.saveSettings();
@@ -4146,26 +3816,36 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     const text = editor.getRange(from, to);
     if (!text.trim() || !view?.file) return;
     if (text.length > PASSAGE_MAX_CHARS) {
-      new obsidian.Notice(`⚠️ 选中的内容有 ${text.length} 字，猫咖一条消息放不下，请缩短到 ${PASSAGE_MAX_CHARS} 字以内`);
+      new obsidian.Notice(`选中的内容有 ${text.length} 字，猫咖一条消息放不下，请缩短到 ${PASSAGE_MAX_CHARS} 字以内`);
       return;
     }
     const passage = { path: view.file.path, basename: view.file.basename, text,
       from: { line: from.line, ch: from.ch }, to: { line: to.line, ch: to.ch } };
+    await this.addChatPassage(passage);
+  }
+
+  async addChatPassage(passage, openChat = true) {
     if (this.chatPassages.some(p => samePassage(p, passage))) {
-      await this.openCafeChat({ passage: true });
-      new obsidian.Notice('💡 这段已在选段引用篮里');
-      return;
+      if (openChat) await this.openCafeChat({ passage: true });
+      new obsidian.Notice('这段已在选段引用篮里');
+      return false;
     }
-    if (this.chatPassages.reduce((n, p) => n + p.text.length, 0) + text.length > PASSAGE_MAX_CHARS) {
-      new obsidian.Notice('⚠️ 多段选段累计超过 90,000 字，请先移除部分选段后再添加');
-      return;
+    if (this.chatPassages.reduce((n, p) => n + p.text.length, 0) + passage.text.length > PASSAGE_MAX_CHARS) {
+      new obsidian.Notice('多段选段累计超过 90,000 字，请先移除部分选段后再添加');
+      return false;
     }
     await this.setChatPassages([...this.chatPassages, passage]);
-    await this.openCafeChat({ passage: true });
+    if (openChat) await this.openCafeChat({ passage: true });
+    return true;
   }
 
   _renderChatPassage() {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_CAFE_CHAT)) leaf.view?._renderPassage?.();
+  }
+
+  // Domain writes explicitly invalidate the Lens; unrelated settings saves must not redraw its reading state.
+  _refreshLensViews() {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_PROVENANCE_LENS)) leaf.view?.refresh?.();
   }
 
   /**
@@ -4191,6 +3871,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
   async setRevisionTarget(target) {
     this.settings.revisionTargets = { ...(this.settings.revisionTargets || {}), [target.id]: target };
+    this._refreshLensViews();
     await this.saveSettings();
   }
 
@@ -4200,6 +3881,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     const request = { id, cafe, threadId, passages, at: Date.now(), messageIds: [] };
     if (p) return this.setRevisionTarget({ ...request, path: p.path, original: p.text, from: p.from, to: p.to });
     this.settings.passageRequests = { ...(this.settings.passageRequests || {}), [id]: request };
+    this._refreshLensViews();
     await this.saveSettings();
   }
 
@@ -4223,6 +3905,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     if (t.path) await this.setRevisionTarget(bound);
     else {
       this.settings.passageRequests = { ...this.settings.passageRequests, [id]: bound };
+      this._refreshLensViews();
       await this.saveSettings();
     }
     this._renderChatMessages();
@@ -4341,7 +4024,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
   renderUnifiedNavBar(container, activeTab) {
     const topbar = container.createDiv('atlas-topbar');
     const brand = topbar.createDiv('atlas-topbar-brand');
-    brand.createEl('span', { text: '🐾', cls: 'atlas-topbar-paw' });
+    setAtlasIcon(brand.createEl('span', { cls: 'atlas-topbar-paw', attr: { 'aria-hidden': 'true' } }), ['orbit', 'compass']);
     brand.createEl('span', { text: 'Atlas' });
 
     const connected = this.isCafeConnected;
@@ -4355,9 +4038,9 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
     const actions = topbar.createDiv('atlas-topbar-actions');
     const navItems = [
-      { id: 'lens', label: '🔍 透镜', title: '当前笔记溯源透镜', onClick: () => this.activateLens() },
-      { id: 'chat', label: '💬 对话', title: '猫咖实时对话流', onClick: () => this.openCafeChat() },
-      { id: 'stars', label: '✦ 星图', title: '打开 3D 记忆星图', onClick: () => this.openStarChart() },
+      { id: 'lens', label: '透镜', title: '当前笔记溯源透镜', onClick: () => this.activateLens() },
+      { id: 'chat', label: '对话', title: '猫咖实时对话流', onClick: () => this.openCafeChat() },
+      { id: 'stars', label: '星图', title: '打开 3D 记忆星图', onClick: () => this.openStarChart() },
     ];
     for (const item of navItems) {
       const btn = actions.createEl('button', {
@@ -4371,7 +4054,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
   openSeminarModal(options = {}) {
     if (!this.isCafeConnected) {
-      new obsidian.Notice('⚠️ 请先连接猫咖 Hub');
+      new obsidian.Notice('请先连接猫咖 Hub');
       return;
     }
     new SeminarModal(this.app, this, options).open();
@@ -4421,6 +4104,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
       `atlas_authors: ${JSON.stringify([catName])}`,
       'atlas_source: clowder_ai',
       `atlas_source_ref: ${JSON.stringify(threadId || 'cafe-chat')}`,
+      ...(cafe ? [`atlas_source_cafe: ${JSON.stringify(cafe)}`] : []),
       `related: ${relatedList}`,
       'tags: [agent-memory, cat-seminar]',
       `created: "${now}"`,
@@ -4429,7 +4113,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
       '',
       `# ${shortTitle}`,
       '',
-      `> 🐾 由 **${catName}** 在猫咖研讨中提出，待审阅后点亮结晶`,
+      `> 由 **${catName}** 在猫咖研讨中提出，待审阅后点亮结晶`,
       ...(links.length ? ['', '> [!abstract] 来源上下文', `> - **交叉引用笔记**：${links.join('、')}`] : []),
       '',
       bodyText,
@@ -4438,7 +4122,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
     const newFile = await this.app.vault.create(safeFileName, noteContent);
     await this.app.workspace.getLeaf(false).openFile(newFile);
-    new obsidian.Notice(`💎 已将 ${catName} 的观点存为待结晶笔记：${newFile.basename}（审阅后在透镜里点亮结晶）`);
+    new obsidian.Notice(`已将 ${catName} 的观点存为待结晶笔记：${newFile.basename}（审阅后在透镜里点亮结晶）`);
     this.updateStatusBar();
   }
 
@@ -4463,7 +4147,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
   async appendMessageToActiveNote(msg, catData) {
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile || activeFile.extension !== 'md') {
-      new obsidian.Notice('💡 请先在左侧打开一篇 Markdown 笔记，再点击摘录');
+      new obsidian.Notice('请先在左侧打开一篇 Markdown 笔记，再点击摘录');
       return;
     }
     const profile = SpecParser.resolveCatProfile(catData || msg.catId || '');
@@ -4475,9 +4159,9 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
       .map(line => `> ${line}`)
       .join('\n');
 
-    const block = `\n\n> [!quote] 🐾 ${catName} 伴读研讨摘录 (${now})\n${quotedLines}\n`;
+    const block = `\n\n> [!quote] ${catName} 伴读研讨摘录 (${now})\n${quotedLines}\n`;
     await this.app.vault.append(activeFile, block);
-    new obsidian.Notice(`📥 已将 ${catName} 的观点追加到《${activeFile.basename}》末尾！`);
+    new obsidian.Notice(`已将 ${catName} 的观点追加到《${activeFile.basename}》末尾！`);
   }
 
   // ── Cat Cafe Connection ──
@@ -4503,7 +4187,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
         if (!current()) return;
       }
       console.log(`Clowder Atlas: Connected to Cat Cafe! ${catCount} cats, ${threadCount} threads for this vault`);
-      new obsidian.Notice(`🐾 已连接猫咖！${catCount} 只猫在线，${this.summonedCatIds.size} 只伴读猫猫已就位`);
+      new obsidian.Notice(`已连接猫咖：${catCount} 只猫在线，${this.summonedCatIds.size} 只伴读猫猫已就位`);
       // Cats or threads changed in the cafe (or it went away): refresh the panels, in place while still connected
       client.startPolling(vaultPath, this.cafePollMs, () => {
         this.refreshAllViews({ companionsOnly: this.isCafeConnected });
@@ -4511,7 +4195,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
       });
     } else {
       console.warn('Clowder Atlas: Cat Cafe connection failed:', client.lastError);
-      new obsidian.Notice('⚠️ 猫咖连接失败 — 请确认 Cat Cafe Hub 正在运行');
+      new obsidian.Notice('猫咖连接失败 — 请确认 Cat Cafe Hub 正在运行');
     }
     this.refreshAllViews();
     this.updateStatusBar();
@@ -4561,7 +4245,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     return null;
   }
 
-  /** Re-read cats and threads now (the chat panel's ↻); panels update in place. */
+  /** Re-read cats and threads now (the chat panel's refresh); panels update in place. */
   async refreshCafe() {
     const client = this.cafeClient;
     if (!client) return { ok: false, error: '未连接猫咖' };
@@ -4577,12 +4261,12 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     const before = this.settings.catCafeAddress;
     const outcome = await this.oneClickConnect();
     if (outcome.status === 'connected') {
-      new obsidian.Notice(outcome.address === before ? '✅ 连接已恢复！' : `✅ 自动修复：猫咖在 ${outcome.address}`);
+      new obsidian.Notice(outcome.address === before ? '连接已恢复' : `自动修复：猫咖在 ${outcome.address}`);
       return true;
     }
     new obsidian.Notice(outcome.status === 'failed'
-      ? `❌ 找到了猫咖（${outcome.address}），但没能连上：${outcome.error}`
-      : '❌ 本机没有找到运行中的猫咖 — 请先打开猫咖；还没安装的话，在对话面板点「一键连接猫咖」查看下载方式');
+      ? `找到了猫咖（${outcome.address}），但没能连上：${outcome.error}`
+      : '本机没有找到运行中的猫咖 — 请先打开猫咖；还没安装的话，在对话面板点「一键连接猫咖」查看下载方式');
     return false;
   }
 
@@ -4592,7 +4276,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PROVENANCE_LENS);
     if (existing.length) {
       this.app.workspace.revealLeaf(existing[0]);
-      existing[0].view?.refresh?.();
+      existing[0].view?.updateForActiveFile?.(false);
       return;
     }
 
@@ -4603,16 +4287,20 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     }
   }
 
-  async openStarChart() {
+  async openStarChart({ focusPath = null } = {}) {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_STAR_CHART);
     if (existing.length) {
       this.app.workspace.revealLeaf(existing[0]);
-      existing[0].view?.onOpen?.();
+      const view = existing[0].view;
+      if (view._focusPath && !focusPath) view._paused = false;
+      view._focusPath = focusPath;
+      await existing[0].view?.onOpen?.();
       return;
     }
     const leaf = this.app.workspace.getLeaf(true);
     if (leaf) {
       await leaf.setViewState({ type: VIEW_TYPE_STAR_CHART, active: true });
+      if (focusPath) { leaf.view._focusPath = focusPath; await leaf.view.onOpen(); }
       this.app.workspace.revealLeaf(leaf);
     }
   }
@@ -4630,14 +4318,14 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
   }
 
   /**
-   * ＋ (chat header) or the command: open a conversation of its own in the cafe — named for the passage attached in the
+   * + (chat header) or the command: open a conversation of its own in the cafe — named for the passage attached in the
    * chat, else the note being read, until the first cat to answer names it — and turn the chat panel to it. An attached
    * passage stays attached, so it goes with the first message there. One opening at a time; its key gets the same
    * conversation back if Obsidian resends the request.
    */
   async startNewConversation() {
     if (!this.isCafeConnected) {
-      new obsidian.Notice('⚠️ 请先连接猫咖 Hub');
+      new obsidian.Notice('请先连接猫咖 Hub');
       return;
     }
     if (this._openingConversation) return;
@@ -4646,16 +4334,16 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     try {
       const passage = this.chatPassages.length ? this.chatPassages : null;
       const noteName = passage ? '' : (this.app.workspace.getActiveFile()?.basename || '');
-      const temporaryTitle = threadTitle('💬 新对话', { passage, noteName });
+      const temporaryTitle = threadTitle('新对话', { passage, noteName });
       const thread = await client.createThread({ temporaryTitle, projectPath: this.app.vault.adapter.basePath || '', idempotencyKey: crypto.randomUUID() });
       const title = thread.title || temporaryTitle;  // the cafe may answer before it applies the title
       if (!(await this.showNewConversation(client, thread.id))) {
-        new obsidian.Notice(`💬 新对话「${title}」建在原来连接的猫咖（${client.baseUrl}）里；猫咖连接已经换了，对话栏没有切过去`);
+        new obsidian.Notice(`新对话「${title}」建在原来连接的猫咖（${client.baseUrl}）里；猫咖连接已经换了，对话栏没有切过去`);
         return;
       }
-      new obsidian.Notice(`💬 已新开对话「${title}」${passage ? passage.length > 1 ? `，${passage.length} 段选段跟过来了` : '，选段跟过来了' : ''}`);
+      new obsidian.Notice(`已新开对话「${title}」${passage ? passage.length > 1 ? `，${passage.length} 段选段跟过来了` : '，选段跟过来了' : ''}`);
     } catch (err) {
-      new obsidian.Notice(`⚠️ 新对话没有建成：${err.message || '未知错误'}`);
+      new obsidian.Notice(`新对话没有建成：${err.message || '未知错误'}`);
     } finally {
       this._openingConversation = false;
     }
@@ -4687,7 +4375,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
   async _askCatsAboutNote(file) {
     if (!this.isCafeConnected) {
-      new obsidian.Notice('⚠️ 请先连接猫咖 Hub');
+      new obsidian.Notice('请先连接猫咖 Hub');
       return;
     }
     await this.openCafeChat({ attachFile: file });
@@ -4907,7 +4595,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
       try {
         parsed = obsidian.parseYaml(yamlStr);
       } catch (e) {
-        new obsidian.Notice('⚠️ YAML 格式无效，无法自动补字段。请手动修正 frontmatter 后重试。');
+        new obsidian.Notice('YAML 格式无效，无法自动补字段。请手动修正 frontmatter 后重试。');
         return;
       }
       // Only plain objects (YAML mappings) and null/undefined (empty doc)
@@ -4916,7 +4604,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
       if (parsed === null || parsed === undefined) {
         parsed = {};
       } else if (Array.isArray(parsed) || typeof parsed !== 'object') {
-        new obsidian.Notice('⚠️ Frontmatter 不是属性映射（可能是纯文本或列表），无法自动补字段。请改为 key: value 格式后重试。');
+        new obsidian.Notice('Frontmatter 不是属性映射（可能是纯文本或列表），无法自动补字段。请改为 key: value 格式后重试。');
         return;
       }
 
@@ -5030,16 +4718,16 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     }
 
     const lines = [
-      `📊 Vault 扫描完成`,
+      `Vault 扫描完成`,
       ``,
       `总文件: ${files.length} 篇 Markdown`,
       `Atlas 笔记: ${atlasCount} 篇`,
       ``,
       `按类型:`,
-      ...Object.entries(byType).map(([k, v]) => `  ${MEMORY_TYPE_COLORS[k]?.icon || '📄'} ${k}: ${v}`),
+      ...Object.entries(byType).map(([k, v]) => `  ${MEMORY_TYPE_COLORS[k]?.label || k}（${k}）: ${v}`),
       ``,
       `按状态:`,
-      ...Object.entries(byStatus).map(([k, v]) => `  ${STATUS_LABELS[k]?.icon || '📋'} ${k}: ${v}`),
+      ...Object.entries(byStatus).map(([k, v]) => `  ${STATUS_LABELS[k]?.label || k}（${k}）: ${v}`),
       ``,
       `按层级:`,
       ...Object.entries(byLevel).map(([k, v]) => `  ${k}: ${v}`),
@@ -5188,76 +4876,6 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     new obsidian.Notice(`Atlas Canvas 已生成: ${atlasNotes.length} 笔记, ${edges.length} 连接`);
   }
 
-  // ── Markdown Post Processor (Recall Badge) ──
-
-  postProcessMarkdown(el, ctx) {
-    if (!this.settings.showRecallBadge) return;
-
-    const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
-    if (!file) return;
-
-    const cache = this.app.metadataCache.getFileCache(file);
-    const note = SpecParser.parse(cache?.frontmatter);
-    if (!note) return;
-
-    // Add luminance class to reading view
-    const lumState = LUMINANCE_STATES[note.luminance];
-    if (lumState && this.settings.enableLuminanceCSS) {
-      el.addClass(lumState.cssClass);
-    }
-
-    // Skip frontmatter section block
-    if (el.hasClass('mod-frontmatter') || el.querySelector('.frontmatter, pre.frontmatter')) {
-      return;
-    }
-
-    // Deduplicated Cat Cafe Recall Banner at the top section of Reading View
-    const isTopHeading = Boolean(el.querySelector('h1'));
-    const isFirstSectionOfDoc = Boolean(ctx.docId && this._lastBannerDocId !== ctx.docId);
-    if ((isTopHeading || isFirstSectionOfDoc) && !el.querySelector('.atlas-reading-banner')) {
-      if (ctx.docId) this._lastBannerDocId = ctx.docId;
-      const banner = createDiv({ cls: 'atlas-reading-banner' });
-      const effectiveLum = note.luminance_pinned ? 'active' : (note.luminance || 'warm');
-      const effLumState = LUMINANCE_STATES[effectiveLum] || LUMINANCE_STATES.warm;
-      const memInfo = MEMORY_TYPE_COLORS[note.memory_type];
-      const statusInfo = STATUS_LABELS[note.memory_status] || STATUS_LABELS.draft;
-      const firstAuthor = note.atlas_authors[0] ||
-        (note.atlas_author_details[0] && (note.atlas_author_details[0].name || note.atlas_author_details[0].id)) ||
-        (note.legacy_authors[0] && (note.legacy_authors[0].name || note.legacy_authors[0]));
-      const catInfo = firstAuthor ? SpecParser.resolveCatColor(firstAuthor) : null;
-
-      banner.createEl('span', {
-        text: `${effLumState.icon} ${effLumState.label}`,
-        cls: 'atlas-reading-banner-pill',
-      });
-      if (memInfo) {
-        banner.createEl('span', {
-          text: `${memInfo.icon} ${memInfo.label}`,
-          cls: 'atlas-reading-banner-pill',
-        });
-      }
-      banner.createEl('span', {
-        text: `${statusInfo.icon} ${statusInfo.label} · ${note.level}`,
-        cls: 'atlas-reading-banner-meta',
-      });
-      if (catInfo || firstAuthor) {
-        banner.createEl('span', {
-          text: `🐾 ${catInfo ? catInfo.name : firstAuthor}`,
-          cls: 'atlas-reading-banner-cat',
-        });
-      }
-      banner.createEl('span', {
-        text: '溯源透镜 →',
-        cls: 'atlas-reading-banner-cta',
-      });
-      banner.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.activateLens();
-      });
-      el.prepend(banner);
-    }
-  }
-
   // ── Status Bar ──
 
   updateStatusBar() {
@@ -5270,9 +4888,9 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     }
     if (this.isCafeConnected) {
       const summoned = this.getSummonedCats().length;
-      this.statusBarItem.setText(`🐾 Atlas: ${count} · 伴读 ${summoned}/${this.cafeClient.cats.length}猫`);
+      this.statusBarItem.setText(`Atlas · ${count} 篇 · 伴读 ${summoned}/${this.cafeClient.cats.length}`);
     } else {
-      this.statusBarItem.setText(`🐾 Atlas: ${count}`);
+      this.statusBarItem.setText(`Atlas · ${count} 篇`);
     }
   }
 

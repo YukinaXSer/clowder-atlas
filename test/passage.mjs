@@ -33,19 +33,19 @@ const msg = t.passageMessage(p, '');
 ok('message: no words → asks what the cats make of it, with a 修改稿 block on a 4-backtick fence', msg.includes('请看看这段') && msg.includes('````修改稿') && msg.includes('````\n原文```x```\n````'), msg.slice(0, 80));
 const asked = t.passageMessage({ ...p, text: '一段' }, '帮我改得更简洁');
 ok('message: the user\'s words decide (discuss or revise), with where a revision goes', asked.includes('帮我改得更简洁') && asked.includes('修改稿') && asked.includes('只是讨论的话'));
-ok('shown', t.passageShown(p, '问') === '📌 选段 · 《笔记》第 1 行\n问');
+ok('shown', t.passageShown(p, '问') === '选段 · 《笔记》第 1 行\n问');
 // 0.0.3 a seminar's new conversation: its temporary title says what the seminar is about
 const st = t.seminarThreadTitle;
-ok('seminar title: passage, with its lines', st({ passage: { basename: '笔记', from: { line: 2, ch: 0 }, to: { line: 4, ch: 3 } }, noteName: '别的', topic: '议题' }) === '🎓 研讨会 · 《笔记》第 3–5 行');
-ok('seminar title: the note sent with it', st({ noteName: '记忆框架', topic: '议题' }) === '🎓 研讨会 · 《记忆框架》');
+ok('seminar title: passage, with its lines', st({ passage: { basename: '笔记', from: { line: 2, ch: 0 }, to: { line: 4, ch: 3 } }, noteName: '别的', topic: '议题' }) === '研讨会 · 《笔记》第 3–5 行');
+ok('seminar title: the note sent with it', st({ noteName: '记忆框架', topic: '议题' }) === '研讨会 · 《记忆框架》');
 const fromTopic = st({ topic: '  请从各自专长\n审阅这份方案的盲区与风险，并给出具体改进建议，越具体越好  ' });
-ok('seminar title: else the start of the topic, on one line, clipped', fromTopic.startsWith('🎓 研讨会 · 请从各自专长 审阅') && fromTopic.endsWith('…') && Array.from(fromTopic.slice('🎓 研讨会 · '.length)).length === 30, fromTopic);
-ok('seminar title: nothing to go on', st({}) === '🎓 研讨会' && st({ topic: '   ' }) === '🎓 研讨会');
+ok('seminar title: else the start of the topic, on one line, clipped', fromTopic.startsWith('研讨会 · 请从各自专长 审阅') && fromTopic.endsWith('…') && Array.from(fromTopic.slice('研讨会 · '.length)).length === 30, fromTopic);
+ok('seminar title: nothing to go on', st({}) === '研讨会' && st({ topic: '   ' }) === '研讨会');
 const longName = '🐱'.repeat(60);
 const clipped = st({ noteName: longName });
-ok('seminar title: a long name is clipped whole characters (no broken emoji), within the cafe\'s 200', clipped === `🎓 研讨会 · 《${'🐱'.repeat(39)}…》` && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(clipped) && clipped.length <= 200, clipped);
-// 0.0.5 ＋ 新开对话: the same naming, with its own label
-ok('new conversation title: the passage at hand', t.threadTitle('💬 新对话', { passage: { basename: 'B笔记', from: { line: 2, ch: 0 }, to: { line: 2, ch: 9 } } }) === '💬 新对话 · 《B笔记》第 3 行');
-ok('new conversation title: else the note being read, else the label alone', t.threadTitle('💬 新对话', { noteName: 'B笔记' }) === '💬 新对话 · 《B笔记》' && t.threadTitle('💬 新对话', {}) === '💬 新对话');
+ok('seminar title: a long name is clipped whole characters (no broken emoji), within the cafe\'s 200', clipped === `研讨会 · 《${'🐱'.repeat(39)}…》` && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(clipped) && clipped.length <= 200, clipped);
+// 0.0.5 + 新开对话: the same naming, with its own label
+ok('new conversation title: the passage at hand', t.threadTitle('新对话', { passage: { basename: 'B笔记', from: { line: 2, ch: 0 }, to: { line: 2, ch: 9 } } }) === '新对话 · 《B笔记》第 3 行');
+ok('new conversation title: else the note being read, else the label alone', t.threadTitle('新对话', { noteName: 'B笔记' }) === '新对话 · 《B笔记》' && t.threadTitle('新对话', {}) === '新对话');
 console.log(fail ? `FAILED ${fail}` : 'ALL PASS');
 process.exitCode = fail ? 1 : 0;

@@ -43,41 +43,42 @@
 
 /* ── Theme-Specific Surface Tokens ── */
 body.theme-light {
-  --atlas-bg-panel: linear-gradient(180deg, #FDFBF7 0%, #F6F0E6 100%);
-  --atlas-presence: #3f8552;
-  --atlas-surface: #FAF6EF;
-  --atlas-bg-card: rgba(255, 253, 249, 0.88);
-  --atlas-bg-card-hover: #FFFFFF;
-  --atlas-bg-subtle: rgba(186, 140, 99, 0.07);
-  --atlas-bg-pill: rgba(186, 140, 99, 0.11);
-  --atlas-border-card: rgba(180, 142, 104, 0.22);
-  --atlas-border-hover: rgba(200, 125, 85, 0.48);
-  --atlas-shadow-card: 0 2px 10px rgba(120, 82, 48, 0.05), 0 1px 2px rgba(120, 82, 48, 0.04);
-  --atlas-shadow-hover: 0 6px 18px rgba(120, 82, 48, 0.10);
-  --atlas-text-title: #3B2A1E;
-  --atlas-text-body: #4A382B;
-  --atlas-text-sub: #846C5B;
-  --atlas-accent-primary: #C4744A;
-  --atlas-accent-primary-hover: #A85D36;
+  /* Native neutral surfaces; one restrained accent for active states and the quote rule. */
+  --atlas-bg-panel: var(--background-secondary, #F6F6F7);
+  --atlas-presence: #22C55E;
+  --atlas-surface: var(--background-primary, #FFFFFF);
+  --atlas-bg-card: #FFFFFF;
+  --atlas-bg-card-hover: #FAFAFB;
+  --atlas-bg-subtle: rgba(0, 0, 0, 0.03);
+  --atlas-bg-pill: rgba(0, 0, 0, 0.05);
+  --atlas-border-card: rgba(0, 0, 0, 0.08);
+  --atlas-border-hover: rgba(0, 0, 0, 0.16);
+  --atlas-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.03);
+  --atlas-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --atlas-text-title: #18181B;
+  --atlas-text-body: #3F3F46;
+  --atlas-text-sub: #71717A;
+  --atlas-accent-primary: #A65E2E;
+  --atlas-accent-primary-hover: #8C4E25;
 }
 
 body.theme-dark {
-  --atlas-bg-panel: linear-gradient(180deg, #1D1815 0%, #151210 100%);
-  --atlas-presence: #84c793;
-  --atlas-surface: #191412;
-  --atlas-bg-card: rgba(42, 34, 29, 0.65);
-  --atlas-bg-card-hover: rgba(54, 43, 36, 0.82);
-  --atlas-bg-subtle: rgba(212, 165, 116, 0.07);
-  --atlas-bg-pill: rgba(212, 165, 116, 0.12);
-  --atlas-border-card: rgba(212, 165, 116, 0.14);
-  --atlas-border-hover: rgba(232, 184, 75, 0.38);
-  --atlas-shadow-card: 0 4px 14px rgba(0, 0, 0, 0.22);
-  --atlas-shadow-hover: 0 8px 22px rgba(0, 0, 0, 0.34);
-  --atlas-text-title: #F5EBE1;
-  --atlas-text-body: #E2D5C8;
-  --atlas-text-sub: #A69382;
-  --atlas-accent-primary: #CA8058;
-  --atlas-accent-primary-hover: #DF946B;
+  --atlas-bg-panel: var(--background-secondary, #161618);
+  --atlas-presence: #4ADE80;
+  --atlas-surface: var(--background-primary, #1C1C1F);
+  --atlas-bg-card: rgba(255, 255, 255, 0.025);
+  --atlas-bg-card-hover: rgba(255, 255, 255, 0.045);
+  --atlas-bg-subtle: rgba(255, 255, 255, 0.035);
+  --atlas-bg-pill: rgba(255, 255, 255, 0.06);
+  --atlas-border-card: rgba(255, 255, 255, 0.08);
+  --atlas-border-hover: rgba(255, 255, 255, 0.16);
+  --atlas-shadow-card: none;
+  --atlas-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.25);
+  --atlas-text-title: #ECECEF;
+  --atlas-text-body: #D4D4D8;
+  --atlas-text-sub: #8E8E96;
+  --atlas-accent-primary: #D49B6A;
+  --atlas-accent-primary-hover: #E0AC7E;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -99,13 +100,13 @@ body.theme-dark {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 11px;
-  margin-bottom: 12px;
-  background: var(--atlas-bg-card);
-  border: 1px solid var(--atlas-border-card);
-  border-radius: var(--atlas-radius);
-  box-shadow: var(--atlas-shadow-card);
-  backdrop-filter: blur(10px);
+  padding: 8px 12px;
+  margin: 0 0 4px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--atlas-border-card);
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .atlas-topbar-brand {
@@ -113,8 +114,8 @@ body.theme-dark {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  font-weight: 700;
-  color: var(--atlas-text-title, var(--text-normal));
+  font-weight: 600;
+  color: var(--atlas-text-sub, var(--text-muted));
   letter-spacing: 0.01em;
   white-space: nowrap;
 }
@@ -123,46 +124,41 @@ body.theme-dark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  background: linear-gradient(135deg, rgba(200, 125, 85, 0.22), rgba(232, 184, 75, 0.22));
-  font-size: 12px;
+  width: 16px;
+  height: 16px;
+  color: var(--atlas-text-sub, var(--text-muted));
 }
+.atlas-topbar-paw svg { width: 14px; height: 14px; }
 
 .atlas-topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.atlas-icon-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 9px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: var(--atlas-radius-pill);
-  border: 1px solid var(--atlas-border-card);
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
   background: var(--atlas-bg-subtle);
-  color: var(--atlas-text-body, var(--text-normal));
+  border: 1px solid var(--atlas-border-card);
+}
+
+.atlas-topbar button.atlas-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border-radius: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--atlas-text-sub, var(--text-muted));
+  box-shadow: none;
   cursor: pointer;
-  transition: all var(--atlas-transition);
+  transition: background-color 0.15s ease, color 0.15s ease;
   white-space: nowrap;
 }
 
-.atlas-icon-btn:hover {
-  background: var(--atlas-accent-primary);
-  color: #FFF;
-  border-color: var(--atlas-accent-primary);
-  transform: translateY(-1px);
-  box-shadow: 0 3px 10px rgba(200, 125, 85, 0.25);
-}
-
-.atlas-icon-btn-star {
-  background: linear-gradient(135deg, rgba(232, 184, 75, 0.18), rgba(200, 125, 85, 0.18));
-  border-color: rgba(232, 184, 75, 0.35);
+.atlas-topbar button.atlas-icon-btn:hover {
+  background: var(--atlas-bg-card-hover);
   color: var(--atlas-text-title, var(--text-normal));
 }
 
@@ -771,67 +767,6 @@ body.theme-dark {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Reading View — Cat Cafe Recall & Luminance Banner
-   ═══════════════════════════════════════════════════════════════════ */
-
-.atlas-reading-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 7px 13px;
-  margin: 0 0 14px 0;
-  border-radius: var(--atlas-radius);
-  background: var(--atlas-bg-card);
-  border: 1px solid var(--atlas-border-card);
-  border-left: 4px solid var(--atlas-cafe-caramel);
-  box-shadow: var(--atlas-shadow-card);
-  font-size: 12px;
-  color: var(--atlas-text-body);
-  cursor: pointer;
-  transition: all var(--atlas-transition);
-}
-
-.atlas-reading-banner:hover {
-  border-color: var(--atlas-border-hover);
-  transform: translateY(-1px);
-}
-
-.atlas-reading-banner-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-}
-
-.atlas-reading-banner-right {
-  font-size: 11px;
-  color: var(--atlas-text-sub);
-}
-
-.atlas-luminance-active .markdown-preview-section > :first-child {
-  border-left: 3px solid var(--atlas-lum-active);
-  padding-left: 12px;
-}
-
-.atlas-luminance-warm .markdown-preview-section > :first-child {
-  border-left: 3px solid var(--atlas-lum-warm);
-  padding-left: 12px;
-}
-
-.atlas-luminance-cool .markdown-preview-section > :first-child {
-  border-left: 2px solid var(--atlas-lum-cool);
-  padding-left: 12px;
-}
-
-.atlas-luminance-dormant .markdown-preview-section > :first-child {
-  border-left: 1px dashed var(--atlas-lum-dormant);
-  padding-left: 12px;
-  opacity: 0.78;
-}
-
-/* ═══════════════════════════════════════════════════════════════════
    Star Chart — Observatory layout v2
    root grid: top bar (title + filters) · stage (canvas + overlays) · bottom bar
    Spec: research/agent-memory/internal/clowder-atlas/star-chart-layout-v2.md
@@ -1385,10 +1320,6 @@ body.theme-dark {
   background: #4CAF50;
   box-shadow: 0 0 6px rgba(76, 175, 80, 0.5);
 }
-.atlas-icon-btn-hub {
-  background: var(--atlas-accent-primary) !important;
-  color: #fff !important;
-}
 
 /* ── Cat Cafe Live Panel ── */
 .atlas-cafe-panel {
@@ -1501,15 +1432,16 @@ body.theme-dark {
   filter: brightness(1.1) saturate(1.1);
 }
 
-/* Emoji fallback */
-.atlas-avatar-emoji {
+/* A cat without a photo: the first character of its name */
+.atlas-avatar-initial {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   height: 100%;
-  font-size: calc(var(--avatar-size) * 0.5);
-  background: linear-gradient(135deg, var(--avatar-accent), color-mix(in srgb, var(--avatar-accent) 60%, #000));
+  font-size: calc(var(--avatar-size) * 0.42);
+  font-weight: 600;
+  background: var(--avatar-accent);
   color: #fff;
 }
 
@@ -1764,8 +1696,11 @@ body.theme-dark {
   gap: 8px;
 }
 .atlas-chat-offline-icon {
-  font-size: 48px;
+  display: flex;
+  justify-content: center;
+  color: var(--atlas-text-sub);
 }
+.atlas-chat-offline-icon svg { width: 32px; height: 32px; stroke-width: 1.5; }
 .atlas-chat-offline h3 {
   color: var(--atlas-text-body);
   margin: 0;
@@ -1951,8 +1886,8 @@ body.theme-dark {
   font-weight: 600;
   color: var(--atlas-text-title);
 }
-.atlas-cafe-chat button.atlas-chat-hub-btn { color: var(--atlas-accent-primary); }
-.atlas-cafe-chat button.atlas-chat-new-btn { padding: 3px 8px; font-size: 14px; font-weight: 600; color: var(--atlas-accent-primary); }
+.atlas-cafe-chat button.atlas-chat-hub-btn { gap: 3px; color: var(--atlas-text-sub); }
+.atlas-cafe-chat button.atlas-chat-new-btn { padding: 3px 6px; color: var(--atlas-text-sub); }
 .atlas-cafe-chat button.atlas-chat-config-btn { padding: 3px 7px; color: var(--atlas-text-sub); }
 .atlas-cafe-chat button.atlas-chat-config-btn[aria-expanded="true"] {
   border-color: var(--atlas-accent-primary);
@@ -1960,7 +1895,7 @@ body.theme-dark {
   color: var(--atlas-accent-primary);
 }
 
-/* In-panel connection settings (⚙ in the thread row; 填写地址 when offline) */
+/* In-panel connection settings (the gear in the thread row; 填写地址 when offline) */
 .atlas-chat-config {
   flex: 0 0 auto;
   display: flex;
@@ -2314,13 +2249,12 @@ body.theme-dark {
    v0.8.0 Coherent Companion Edition — Unified Loop Styles
    ═══════════════════════════════════════════════════════════════ */
 
-/* 1. Unified Header Active Tab Highlight */
-.atlas-icon-btn.is-active-tab {
-  background: linear-gradient(135deg, rgba(200, 125, 85, 0.22), rgba(212, 163, 89, 0.16)) !important;
-  border-color: var(--atlas-accent-primary) !important;
-  color: var(--atlas-accent-primary) !important;
-  font-weight: 700 !important;
-  box-shadow: 0 2px 8px rgba(200, 125, 85, 0.18);
+/* 1. Unified header: the active segment */
+.atlas-topbar button.atlas-icon-btn.is-active-tab {
+  background: var(--atlas-surface);
+  color: var(--atlas-text-title, var(--text-normal));
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
 /* 2. Message actions (save as pending / excerpt); companion strip and toolbar live in the chat panel v2 section */
@@ -2408,3 +2342,103 @@ body.theme-dark {
 .atlas-cafe-chat button.atlas-chat-passage-chip-rm { flex-shrink: 0; min-width: 20px; min-height: 20px; padding: 0 3px; border: 0; background: transparent; }
 .atlas-seminar-passage-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .atlas-seminar-passage-chip { max-width: 100%; overflow-wrap: anywhere; padding: 3px 8px; border: 1px solid var(--atlas-border-card); border-radius: 12px; font-size: 11.5px; }
+
+/* Lens v2 · Quiet Precision: native neutral surfaces, plugin metadata kept quiet, the document's own words in the quote slot. */
+/* Hide 0.0.6 document residue as soon as this stylesheet is active, even before its JS is reloaded. */
+.atlas-reading-banner { display: none !important; }
+.atlas-lens-v2 { overflow-x: hidden; padding: 0 0 24px; background: var(--atlas-bg-panel); }
+.atlas-lens-v2 > .atlas-topbar { flex-wrap: wrap; }
+.atlas-lens-v2 [hidden] { display: none !important; }
+
+/* Line icons (Obsidian's own Lucide set) in front of labels */
+.atlas-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; color: inherit; }
+.atlas-icon svg { width: 13px; height: 13px; stroke-width: 1.75; }
+
+/* Title, path and the properties strip: everything about the note at a glance */
+.atlas-lens-v2 .atlas-lens-hero { margin: 0; padding: 14px 16px 12px; border-bottom: 1px solid var(--atlas-border-card); }
+.atlas-lens-hero h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; line-height: 1.35; color: var(--atlas-text-title); overflow-wrap: anywhere; }
+.atlas-lens-v2 .atlas-header-path { font-family: var(--font-monospace, monospace); font-size: 11px; color: var(--atlas-text-sub); overflow-wrap: anywhere; }
+.atlas-lens-properties { display: grid; gap: 6px; margin-top: 12px; font-size: 11.5px; }
+.atlas-lens-prop { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 24px; }
+.atlas-lens-prop-key { color: var(--atlas-text-sub); }
+.atlas-lens-prop-value { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; color: var(--atlas-text-body); overflow-wrap: anywhere; }
+.atlas-lens-state { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px; font-size: 11px; color: var(--atlas-text-body); background: var(--atlas-bg-pill); }
+.atlas-lens-state.is-pending { color: var(--atlas-accent-primary); }
+.atlas-lens-segmented { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: 6px; background: var(--atlas-bg-subtle); border: 1px solid var(--atlas-border-card); }
+.atlas-lens-v2 button.atlas-lens-seg { height: 22px; padding: 0 9px; font-size: 11px; font-weight: 500; border-radius: 4px; border: 1px solid transparent; background: transparent; color: var(--atlas-text-sub); box-shadow: none; }
+.atlas-lens-v2 .atlas-lens-prop-value > button.atlas-lens-seg { border-color: var(--atlas-border-card); background: var(--atlas-bg-subtle); }
+.atlas-lens-v2 button.atlas-lens-seg:hover:not(:disabled) { color: var(--atlas-text-title); background: var(--atlas-bg-card-hover); }
+.atlas-lens-v2 button.atlas-lens-seg[aria-pressed="true"] { color: var(--atlas-text-title); font-weight: 600; background: var(--atlas-surface); border-color: var(--atlas-border-card); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.atlas-lens-sources summary { cursor: pointer; color: var(--atlas-text-sub); }
+.atlas-lens-sources p { margin: 4px 0 0; color: var(--atlas-text-body); overflow-wrap: anywhere; }
+.atlas-lens-properties .atlas-diagnostic-warning { margin: 0; font-size: 11px; }
+
+/* Actions: ghost buttons with a line icon */
+.atlas-lens-action-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.atlas-lens-v2 button.atlas-lens-action { flex: 1 1 auto; min-width: 0; height: 27px; gap: 6px; padding: 0 10px; font-size: 11.5px; font-weight: 500; border-radius: 6px; border: 1px solid var(--atlas-border-card); background: var(--atlas-bg-subtle); color: var(--atlas-text-body); box-shadow: none; }
+.atlas-lens-v2 button.atlas-lens-action:hover:not(:disabled) { border-color: var(--atlas-border-hover); background: var(--atlas-bg-card-hover); }
+
+/* A pending insight: one accented rule, no box-in-box */
+.atlas-lens-review { margin: 12px 16px 0; padding: 12px; border: 1px solid var(--atlas-border-card); border-left: 2px solid var(--atlas-accent-primary); border-radius: 6px; background: var(--atlas-bg-card); }
+.atlas-lens-review strong { font-size: 12px; color: var(--atlas-text-title); }
+.atlas-lens-review p { margin: 4px 0 10px; color: var(--atlas-text-sub); font-size: 11.5px; }
+
+/* Tray status line */
+.atlas-lens-materials { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 12px 16px 4px; padding: 7px 11px; border-radius: 6px; background: var(--atlas-bg-subtle); border: 1px solid var(--atlas-border-card); color: var(--atlas-text-sub); font-size: 11.5px; }
+.atlas-lens-v2 .atlas-lens-materials button { height: auto; padding: 0; box-shadow: none; background: transparent; border: 0; color: var(--atlas-accent-primary); font-size: 11.5px; font-weight: 500; }
+.atlas-lens-v2 .atlas-lens-materials button:hover { color: var(--atlas-accent-primary-hover); background: transparent; }
+
+/* Sections and cards */
+.atlas-lens-v2 .atlas-lens-section { margin: 0; padding: 14px 16px; border: 0; border-top: 1px solid var(--atlas-border-card); border-radius: 0; background: none; box-shadow: none; transform: none; }
+.atlas-lens-v2 .atlas-lens-section:hover { transform: none; box-shadow: none; }
+.atlas-lens-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.atlas-lens-v2 h5 { font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; margin: 0 0 8px; color: var(--atlas-text-sub); }
+.atlas-lens-section-heading h5 { margin: 0; }
+.atlas-lens-count { color: var(--atlas-text-sub); font-size: 11px; font-variant-numeric: tabular-nums; }
+.atlas-lens-card-list { display: grid; gap: 8px; }
+.atlas-lens-link-card { min-width: 0; padding: 10px 12px; border: 1px solid var(--atlas-border-card); border-radius: 7px; background: var(--atlas-bg-card); transition: border-color 0.15s ease; }
+.atlas-lens-link-card:hover { border-color: var(--atlas-border-hover); }
+.atlas-lens-card-top { display: flex; align-items: flex-start; gap: 8px; justify-content: space-between; }
+.atlas-lens-v2 button.atlas-lens-card-title { min-width: 0; height: auto; gap: 5px; padding: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; color: var(--atlas-text-title); background: transparent !important; box-shadow: none !important; border: 0; }
+.atlas-lens-card-title .atlas-icon { align-self: flex-start; margin-top: 3px; color: var(--atlas-text-sub); }
+.atlas-lens-v2 button.atlas-lens-collect { flex-shrink: 0; height: 22px; padding: 0 8px; font-size: 11px; border-radius: 4px; background: transparent; border: 1px solid var(--atlas-border-card); color: var(--atlas-text-sub); box-shadow: none; }
+.atlas-lens-v2 button.atlas-lens-collect:hover:not(:disabled) { color: var(--atlas-text-title); border-color: var(--atlas-border-hover); }
+.atlas-lens-v2 button.atlas-lens-collect:disabled { color: var(--atlas-accent-primary); border-color: transparent; background: var(--atlas-bg-pill); opacity: 1; }
+.atlas-lens-card-kind { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; font-size: 10.5px; color: var(--atlas-text-sub); }
+.atlas-lens-card-path { font-family: var(--font-monospace, monospace); font-size: 10.5px; color: var(--atlas-text-sub); overflow-wrap: anywhere; }
+.atlas-lens-kind-badge { padding: 1px 6px; border-radius: 4px; background: var(--atlas-bg-pill); color: var(--atlas-text-sub); font-size: 10.5px; }
+.atlas-lens-line { font-family: var(--font-monospace, monospace); font-size: 10.5px; color: var(--atlas-text-sub); }
+.atlas-lens-snippet { margin: 8px 0 0; padding: 7px 10px; border-radius: 0 5px 5px 0; border-left: 2px solid var(--atlas-accent-primary); background: rgba(0, 0, 0, 0.22); color: var(--atlas-text-body); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
+body.theme-light .atlas-lens-snippet { background: rgba(0, 0, 0, 0.03); }
+.atlas-lens-snippet-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
+
+/* Discussions and derived notes */
+.atlas-lens-v2 button.atlas-lens-discussion { display: flex; align-items: flex-start; gap: 6px; width: 100%; height: auto; margin: 6px 0 0; padding: 7px 10px; text-align: left; white-space: normal; overflow-wrap: anywhere; font-size: 12px; border-radius: 6px; border: 1px solid var(--atlas-border-card); background: var(--atlas-bg-card); color: var(--atlas-text-body); box-shadow: none; }
+.atlas-lens-v2 button.atlas-lens-discussion:hover:not(:disabled) { border-color: var(--atlas-border-hover); }
+.atlas-lens-discussion .atlas-icon { margin-top: 2px; color: var(--atlas-text-sub); }
+.atlas-lens-derived { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 6px 0 0; }
+.atlas-lens-v2 .atlas-lens-derived button { height: auto; max-width: 100%; padding: 0; white-space: normal; text-align: left; overflow-wrap: anywhere; font-size: 12px; background: transparent; border: 0; box-shadow: none; color: var(--atlas-text-title); }
+.atlas-lens-v2 .atlas-lens-derived button:hover { text-decoration: underline; background: transparent; }
+.atlas-lens-tag { padding: 1px 6px; border-radius: 4px; font-size: 10.5px; background: var(--atlas-bg-pill); color: var(--atlas-text-sub); }
+.atlas-lens-tag.is-pending { color: var(--atlas-accent-primary); }
+
+/* Line icons in the chat panel and the seminar picker */
+.atlas-cafe-chat button.atlas-chat-new-btn svg,
+.atlas-cafe-chat button.atlas-chat-config-btn svg { width: 14px; height: 14px; }
+.atlas-cafe-chat button.atlas-chat-hub-btn .atlas-icon svg { width: 12px; height: 12px; }
+.atlas-cafe-chat button.atlas-chat-passage-chip-rm svg,
+.atlas-cafe-chat button.atlas-chat-passage-clear svg { width: 12px; height: 12px; }
+.atlas-chat-passage-icon { display: inline-flex; color: var(--atlas-accent-primary); }
+.atlas-chat-passage-icon svg { width: 13px; height: 13px; }
+.atlas-seminar-check svg { width: 12px; height: 12px; stroke-width: 2.5; }
+
+/* Chat panel under the same rule as the Lens: the accent marks only what is active or primary. */
+.atlas-cafe-chat .atlas-topbar-actions { gap: 2px; }
+.atlas-cafe-chat .atlas-topbar button.atlas-icon-btn { min-height: 0; height: 22px; padding: 0 10px; font-size: 11.5px; font-weight: 500; border: 0; border-radius: 4px; background: transparent; color: var(--atlas-text-sub); }
+.atlas-cafe-chat .atlas-topbar button.atlas-icon-btn:hover:not(:disabled) { border: 0; background: var(--atlas-bg-card-hover); color: var(--atlas-text-title); }
+.atlas-cafe-chat .atlas-topbar button.atlas-icon-btn.is-active-tab { background: var(--atlas-surface); color: var(--atlas-text-title); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }
+.atlas-chat-bubble.is-user { background: color-mix(in srgb, var(--atlas-accent-primary) 20%, transparent); color: var(--atlas-text-title); }
+.atlas-chat-bubble.is-user .atlas-chat-time { color: var(--atlas-text-sub); }
+.atlas-cafe-chat button.atlas-companion-seminar-pill { color: var(--atlas-text-body); background: var(--atlas-bg-subtle); border-color: var(--atlas-border-card); }
+.atlas-cafe-chat button.atlas-chat-action-pill { font-weight: 500; color: var(--atlas-text-body); background: var(--atlas-bg-subtle); border-color: var(--atlas-border-card); }
+.atlas-cafe-chat button.atlas-chat-action-pill:hover:not(:disabled) { color: var(--atlas-text-title); background: var(--atlas-bg-card-hover); border-color: var(--atlas-border-hover); }

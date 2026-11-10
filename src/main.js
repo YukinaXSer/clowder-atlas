@@ -636,10 +636,13 @@ function lensExcerpt(file, content, line = null) {
   }
   if (first < body || first < 0 || first >= lines.length || !lines[first].trim()) return null;
   let last = first;
+  const structured = /^\s*(?:[-*+]\s|\d+[.)]\s|\|)/.test(lines[first]);
   // Keep headings, tables and callouts at their actual lines; prose includes its paragraph, never the whole note.
   const boundary = text => !text.trim() || /^\s*(#{1,6}\s|`{3,}|~{3,}|---\s*$)/.test(text);
-  while (first > body && !boundary(lines[first - 1])) first--;
-  while (last + 1 < lines.length && !boundary(lines[last + 1])) last++;
+  if (!structured) {
+    while (first > body && !boundary(lines[first - 1])) first--;
+    while (last + 1 < lines.length && !boundary(lines[last + 1])) last++;
+  }
   const text = lines.slice(first, last + 1).join('\n');
   return { path: file.path, basename: file.basename, text, from: { line: first, ch: 0 }, to: { line: last, ch: lines[last].length } };
 }
@@ -668,7 +671,7 @@ async function lensNetwork(app, file) {
     const dest = resolve(raw, file), path = dest?.path || String(raw);
     if (seen.has(path) || path === file.path) return;
     seen.add(path);
-    outgoing.push({ path, file: dest?.extension === 'md' ? dest : null, kind });
+    outgoing.push({ path, file: dest || null, kind });
   };
   for (const raw of related(file)) add(raw, '研讨源笔记');
   for (const link of cache.getFileCache(file)?.links || []) add(link.link, '正文引用');
@@ -703,28 +706,54 @@ class ProvenanceLensView extends obsidian.ItemView {
     this.plugin = plugin;
     this.currentFile = null;
     this._generation = 0;
+    this._dirtyPaths = new Set();
   }
   getViewType() { return VIEW_TYPE_PROVENANCE_LENS; }
   getDisplayText() { return 'Provenance Lens'; }
   getIcon() { return 'eye'; }
   async onOpen() {
-    this.registerEvent(this.app.workspace.on('active-leaf-change', () => this.refresh()));
-    this.registerEvent(this.app.metadataCache.on('changed', () => {
-      clearTimeout(this._refreshTimer);
-      this._refreshTimer = setTimeout(() => this.refresh(), 100);
-    }));
-    this.registerEvent(this.app.metadataCache.on('resolved', () => this.refresh()));
+    this.registerEvent(this.app.workspace.on('active-leaf-change', () => this.updateForActiveFile(false)));
+    this.registerEvent(this.app.metadataCache.on('changed', file => this._scheduleMetadataRefresh(file)));
+    this.registerEvent(this.app.metadataCache.on('resolved', () => this._scheduleMetadataRefresh()));
     await this.updateForActiveFile();
   }
   async onClose() { this._generation++; clearTimeout(this._refreshTimer); }
   refresh() { return this.updateForActiveFile(); }
-  async updateForActiveFile() {
-    const generation = ++this._generation;
+  _networkSignature(network) {
+    return JSON.stringify([
+      network.incoming.map(e => [e.path, e.kind, e.line]),
+      network.outgoing.map(e => [e.path, e.kind, e.file?.extension]),
+      network.derived.map(e => [e.path, e.status, e.authors])
+    ]);
+  }
+  _scheduleMetadataRefresh(file) {
+    if (file) this._dirtyPaths.add(file.path);
+    clearTimeout(this._refreshTimer);
+    this._refreshTimer = setTimeout(async () => {
+      const current = this.currentFile, generation = this._generation;
+      const dirty = [...this._dirtyPaths];
+      this._dirtyPaths.clear();
+      if (!current) return;
+      const network = await lensNetwork(this.app, current);
+      if (generation !== this._generation) return;
+      const paths = new Set([current.path, ...network.incoming.map(e => e.path), ...network.outgoing.map(e => e.path), ...network.derived.map(e => e.path)]);
+      if (dirty.some(path => paths.has(path)) || this._networkSignature(network) !== this._networkKey) await this.refresh();
+    }, 100);
+  }
+  async updateForActiveFile(force = true) {
     const file = this.app.workspace.getActiveFile();
     const root = this.containerEl.children[1];
+    const nextFile = file?.extension === 'md' ? file : null;
+    // Sidebar focus is not a new document. Leave its live buttons and reading position in place.
+    if (!force && (nextFile?.path === this.currentFile?.path || (!file && this.currentFile))) return;
+    const sameFile = nextFile && nextFile.path === this.currentFile?.path;
+    if (sameFile) this._readingState.scrollTop = root.scrollTop;
+    else this._readingState = { shown: { incoming: 6, outgoing: 6 }, scrollTop: 0, footerOpen: false };
+    const scrollTop = this._readingState.scrollTop;
+    const generation = ++this._generation;
     root.empty(); root.addClass('atlas-provenance-lens'); root.addClass('atlas-lens-v2');
     this.plugin.renderUnifiedNavBar(root, 'lens');
-    this.currentFile = file?.extension === 'md' ? file : null;
+    this.currentFile = nextFile;
     if (!this.currentFile) {
       const welcome = root.createDiv('atlas-lens-welcome');
       welcome.createEl('h3', { text: '从一篇笔记开始' });
@@ -761,14 +790,18 @@ class ProvenanceLensView extends obsidian.ItemView {
     try {
       const network = await lensNetwork(this.app, file);
       if (generation !== this._generation) return;
+      this._networkKey = this._networkSignature(network);
       networkEl.empty();
-      this._renderCards(networkEl, '引用此篇的笔记', network.incoming, generation, true);
-      this._renderCards(networkEl, '此篇引用的笔记', network.outgoing, generation, false);
       this._renderDerived(discussions, network.derived);
       if (note?.paper_arxiv && /^\d{4}\.\d{4,5}(v\d+)?$/.test(note.paper_arxiv)) {
         const section = networkEl.createDiv('atlas-lens-section');
         section.createEl('a', { text: `↗ 论文 · arXiv ${note.paper_arxiv}`, href: `https://arxiv.org/abs/${note.paper_arxiv}`, cls: 'external-link' });
       }
+      await Promise.all([
+        this._renderCards(networkEl, '引用此篇的笔记', network.incoming, generation, true),
+        this._renderCards(networkEl, '此篇引用的笔记', network.outgoing, generation, false)
+      ]);
+      if (generation === this._generation) root.scrollTop = scrollTop;
     } catch (error) {
       if (generation !== this._generation) return;
       networkEl.empty(); networkEl.createEl('p', { text: '脉络暂未读完，请切回此页重试。', cls: 'atlas-empty-hint' });
@@ -785,20 +818,25 @@ class ProvenanceLensView extends obsidian.ItemView {
     });
     return button;
   }
-  _renderCards(parent, title, entries, generation, inbound) {
+  async _renderCards(parent, title, entries, generation, inbound) {
     const section = parent.createDiv('atlas-lens-section');
     const heading = section.createDiv('atlas-lens-section-heading');
     heading.createEl('h5', { text: title });
     heading.createEl('span', { text: String(entries.length), cls: 'atlas-lens-count' });
     if (!entries.length) { section.createEl('p', { text: inbound ? '还没有笔记引用此篇。' : '还没有源笔记链接。', cls: 'atlas-empty-hint' }); return; }
-    let shown = 0;
+    const state = this._readingState, key = inbound ? 'incoming' : 'outgoing';
+    let shown = Math.min(state.shown[key], entries.length);
     const list = section.createDiv('atlas-lens-card-list');
     const more = this._button(section, '显示更多', async () => {
+      const root = this.containerEl.children[1], scrollTop = root.scrollTop;
       const next = entries.slice(shown, shown + 6); shown += next.length;
+      state.shown[key] = shown;
       await Promise.all(next.map(entry => this._renderCard(list, entry, generation, inbound)));
       more.hidden = shown >= entries.length;
+      if (generation === this._generation) root.scrollTop = scrollTop;
     });
-    more.click();
+    more.hidden = shown >= entries.length;
+    await Promise.all(entries.slice(0, shown).map(entry => this._renderCard(list, entry, generation, inbound)));
   }
   async _renderCard(parent, entry, generation, inbound) {
     const card = parent.createDiv('atlas-lens-link-card');
@@ -811,6 +849,7 @@ class ProvenanceLensView extends obsidian.ItemView {
     card.createDiv({ text: entry.path, cls: 'atlas-lens-card-path' });
     const kind = card.createDiv({ text: entry.kind, cls: 'atlas-lens-card-kind' });
     if (!entry.file) { card.createEl('p', { text: '源笔记尚未创建', cls: 'atlas-empty-hint' }); return; }
+    if (entry.file.extension !== 'md') { card.createEl('p', { text: '附件 · 可打开查看，不摘取原句。', cls: 'atlas-empty-hint' }); return; }
     try {
       const content = await this.app.vault.cachedRead(entry.file);
       if (generation !== this._generation) return;
@@ -861,6 +900,9 @@ class ProvenanceLensView extends obsidian.ItemView {
   }
   _renderFooter(root, file, note) {
     const footer = root.createEl('details', { cls: 'atlas-lens-footer-bar' });
+    const state = this._readingState;
+    footer.open = state.footerOpen;
+    footer.addEventListener('toggle', () => { state.footerOpen = footer.open; });
     footer.createEl('summary', { text: `记忆类型${note ? ` · ${MEMORY_TYPE_COLORS[note.memory_type]?.label || '未分类'}` : ' · 尚未设置'}` });
     const actions = footer.createDiv('atlas-lens-action-bar');
     for (const [key, type] of Object.entries(MEMORY_TYPE_COLORS)) {
@@ -4113,7 +4155,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PROVENANCE_LENS);
     if (existing.length) {
       this.app.workspace.revealLeaf(existing[0]);
-      existing[0].view?.refresh?.();
+      existing[0].view?.updateForActiveFile?.(false);
       return;
     }
 
@@ -4128,7 +4170,9 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_STAR_CHART);
     if (existing.length) {
       this.app.workspace.revealLeaf(existing[0]);
-      if (focusPath) existing[0].view._focusPath = focusPath;
+      const view = existing[0].view;
+      if (view._focusPath && !focusPath) view._paused = false;
+      view._focusPath = focusPath;
       await existing[0].view?.onOpen?.();
       return;
     }

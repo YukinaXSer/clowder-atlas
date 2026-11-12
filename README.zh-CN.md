@@ -4,7 +4,7 @@ Clowder Atlas 帮你在 Obsidian 里查清一篇笔记从哪里来、和哪些�
 
 [**观看 71 秒实机演示**](https://yukinaxser.github.io/clowder-atlas/)
 
-[![Clowder Atlas 实机演示封面，显示三只伴读猫和插件名称。](images/clowder-atlas-demo.jpg)](https://yukinaxser.github.io/clowder-atlas/)
+[![Clowder Atlas 实机演示封面，显示三只伴读猫和插件名称。](https://yukinaxser.github.io/clowder-atlas/clowder-atlas-demo.jpg)](https://yukinaxser.github.io/clowder-atlas/)
 
 演示录自桌面 Obsidian 上的 Clowder Atlas 0.0.7。片中使用示例笔记和预置猫猫回复，配有中文旁白。
 

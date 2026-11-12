@@ -6,7 +6,7 @@ Clowder Atlas helps you trace a note back to its sources and see where it fits i
 
 [**Watch the 71-second demo**](https://yukinaxser.github.io/clowder-atlas/)
 
-[![Watch Clowder Atlas in Obsidian. The cover shows the three companions and the Clowder Atlas title.](images/clowder-atlas-demo.jpg)](https://yukinaxser.github.io/clowder-atlas/)
+[![Watch Clowder Atlas in Obsidian. The cover shows the three companions and the Clowder Atlas title.](https://yukinaxser.github.io/clowder-atlas/clowder-atlas-demo.jpg)](https://yukinaxser.github.io/clowder-atlas/)
 
 Recorded in desktop Obsidian with Clowder Atlas 0.0.7. The demo has Chinese narration and uses sample notes and prepared companion replies.
 

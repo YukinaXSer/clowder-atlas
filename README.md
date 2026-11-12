@@ -1,28 +1,26 @@
 # Clowder Atlas
 
-The Lens lets you inspect backlink context, source excerpts, related discussions and derived insights, and collect paragraphs into the selection tray. Note bodies and tables retain native Obsidian rendering. Memory attributes are folded into the footer. Each candidate is tried locally before explicit operator permission to merge and publish; see [Publishing](PUBLISHING.md).
-
 [简体中文](README.zh-CN.md)
 
-Explore linked notes as a memory star chart, inspect their provenance, and optionally bring Clowder AI companions into your reading workflow.
+Clowder Atlas helps you trace a note back to its sources and see where it fits in your Obsidian vault. Open the **Provenance Lens** to read the paragraphs behind links, then find the note on an interactive **3D star chart**. Rotate or zoom the chart and click a star to open its note.
 
-Clowder Atlas works without an AI service for local exploration and curation. Chat and passage revision require a separately running [Clowder AI](https://github.com/zts212653/clowder-ai) instance. The interface currently uses Chinese labels alongside English command names.
+[**Watch the 71-second demo**](https://yukinaxser.github.io/clowder-atlas/)
 
-## What it does
+[![Watch Clowder Atlas in Obsidian. The cover shows the three companions and the Clowder Atlas title.](images/clowder-atlas-demo.jpg)](https://yukinaxser.github.io/clowder-atlas/)
 
-- **Memory star chart:** explore all Markdown notes and their local link relationships, with memory type filters and brightness based on incoming links.
-- **Provenance Lens:** inspect note metadata, sources, related notes, memory type, and draft/pending/crystallized status.
-- **Local curation:** add memory metadata, create templates, review pending insights, and export Atlas notes to a new Obsidian Canvas.
-- **Optional companions:** read and discuss notes in a chat sidebar (**+** opens a new conversation), organize a multi-cat seminar in a new conversation (named for it) or an existing one, and save useful replies as pending notes or append them to a note.
-- **Selected passages:** select text in the editor and choose **把选中段落交给猫猫**, or run **Clowder Atlas: Ask Cats About Selection**. Tell the cats whether you want discussion or a rewrite. A reply containing a revision can be compared with the original and applied after confirmation.
+Recorded in desktop Obsidian with Clowder Atlas 0.0.7. The demo has Chinese narration and uses sample notes and prepared companion replies.
 
-![Provenance Lens showing a synthetic pending insight and its related notes.](images/provenance-lens.png)
+## What you can do
 
-![Memory star chart generated from the synthetic demo notes.](images/star-chart.png)
+- **Trace a source.** See note properties at the top of the Lens, read incoming and outgoing link excerpts, and jump back to the original text.
+- **Collect and review.** Add excerpts from multiple notes to one tray. Use templates to organize notes, review pending insights before keeping them, or export notes to an Obsidian Canvas.
+- **Discuss or revise a passage.** Connect a running Clowder AI instance to chat about selections, start a seminar, or save replies as pending notes with source links. Compare a revision for a single passage before choosing to replace it.
+
+The chart, Lens, templates and local review work offline. Chat and passage revision use a separately running [Clowder AI](https://github.com/zts212653/clowder-ai) instance. The interface uses Chinese labels and English command names.
 
 ## Installation
 
-Install [Clowder Atlas from the Obsidian Community directory](https://community.obsidian.md/plugins/clowder-atlas), or search for **Clowder Atlas** in **Settings → Community plugins → Browse**. Select **Install**, then **Enable**. Community catalog search, installation of release 0.0.2, and activation were verified in a fresh desktop Obsidian 1.14.5 vault on November 3, 2026. Manual installation is also available below.
+Search for **Clowder Atlas** in **Settings → Community plugins → Browse**. Select **Install**, then **Enable**. You can also open the [Obsidian Community listing](https://community.obsidian.md/plugins/clowder-atlas).
 
 For manual installation, download the three assets from the same release: `main.js`, `manifest.json`, and `styles.css`. Put them in `<vault>/.obsidian/plugins/clowder-atlas/`, then enable **Clowder Atlas** in **Settings → Community plugins**. Reload the plugin after updating its files.
 
@@ -31,7 +29,7 @@ This release supports **desktop Obsidian 1.14.5 or newer**. Version 1.14.5 is th
 ## First use
 
 1. The star chart and Provenance Lens open when the plugin is enabled. Existing Markdown notes can be explored immediately.
-2. To curate a note, open it in the Lens and choose **✨ 赋予这篇笔记记忆身份**, or use a memory template command. Changes to metadata are explicit actions.
+2. To classify a note, choose **语义**, **情景** or **程序** in the Lens properties, or use a memory template command. Opening a note leaves its properties alone.
 3. A pending note can be reviewed and crystallized. Notes in `_atlas/pending/` move to `_atlas/crystals/` when crystallized; notes elsewhere stay in their own folders.
 4. To use companions, open **对话** and choose **一键连接猫咖**, or **填写地址**. Clowder AI must already be running. Connection settings and a roster refresh are available inside the chat panel's settings (gear) button.
 

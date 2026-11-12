@@ -1,20 +1,28 @@
 # Clowder Atlas
 
-透镜侧栏可查看入链原句、源笔记摘要、关联研讨与衍生结晶；点「+ 引用篮」收集材料，正文和表格保持 Obsidian 原生排版。笔记的状态、记忆类型、光泽与锁定恒星、共创、更新时间和来源记录都在透镜顶部的属性栏里，直接查看和修改。开发版先供本地体验，用户允许后才发布，见 [发布流程](PUBLISHING.md)。
+Clowder Atlas 帮你在 Obsidian 里查清一篇笔记从哪里来、和哪些笔记相连。用透镜查看链接处的原句，点回出处。也可以在 3D 星图上缩放、旋转视角，点一颗星打开对应笔记。
 
-用星图浏览笔记的双链关系，查看记忆身份与来源；需要时，将选段交给 Clowder AI 猫猫讨论或修改。
+[**观看 71 秒实机演示**](https://yukinaxser.github.io/clowder-atlas/)
 
-星图、透镜、模板和本地策展可独立使用。对话与选段修改需要另外运行 [Clowder AI](https://github.com/zts212653/clowder-ai)。当前界面以中文为主，命令面板使用英文名称。
+[![Clowder Atlas 实机演示封面，显示三只伴读猫和插件名称。](images/clowder-atlas-demo.jpg)](https://yukinaxser.github.io/clowder-atlas/)
+
+演示录自桌面 Obsidian 上的 Clowder Atlas 0.0.7。片中使用示例笔记和预置猫猫回复，配有中文旁白。
+
+- **查来源。** 透镜顶部显示状态、类型、光泽和来源记录。向下看入链和出链原句，点击卡片跳回出处。
+- **收集和整理。** 把几篇笔记中的原句放进同一个引用篮，用模板整理笔记。待结晶笔记由你确认后再点亮，也可把笔记导出到 Canvas。
+- **一起读。** 连接正在运行的 Clowder AI 后，可以请猫猫讨论选段、开研讨会，或把回复存为带来源的待结晶笔记。单段修改可先对照再替换。
+
+星图、透镜、模板和笔记整理可离线使用。对话与选段修改需要另外运行 [Clowder AI](https://github.com/zts212653/clowder-ai)。界面以中文为主，命令面板使用英文名称。
 
 ## 安装与开始使用
 
-Clowder Atlas 已可从[社区插件目录](https://community.obsidian.md/plugins/clowder-atlas)安装，也可在「设置 → 第三方插件 → 浏览」搜索 **Clowder Atlas**，点击「安装」后「启用」。2026-11-03 已在全新隔离的桌面 Obsidian 1.14.5 库中验证目录搜索、安装 0.0.2 和启用的完整路径。
+在「设置 → 第三方插件 → 浏览」搜索 **Clowder Atlas**，点击「安装」后「启用」。也可以打开[社区插件介绍页](https://community.obsidian.md/plugins/clowder-atlas)。
 
 手动安装时，将同一次 Release 的 `main.js`、`manifest.json`、`styles.css` 放入 `<vault>/.obsidian/plugins/clowder-atlas/`，在「设置 → 第三方插件」启用。更新文件后重新加载插件。
 
 本版本只声明支持桌面版 Obsidian **1.14.5+**；这是保守的验收基线，未验证更早版本和移动端。使用插件不需要 Node.js，只有从源码构建时需要 Node.js 22+。
 
-启用后星图和透镜会自动打开。普通笔记也能进入星图；在透镜里点「✨ 赋予这篇笔记记忆身份」，可补充语义/情景/程序等分类。需要自己审阅的内容先存为待结晶笔记，点亮后，位于 `_atlas/pending/` 的笔记才移动到 `_atlas/crystals/`。导出 Canvas 会新建文件。
+启用后星图和透镜会自动打开。要为普通笔记补充分类，可在透镜顶部选择「语义」「情景」或「程序」。确认点亮后，位于 `_atlas/pending/` 的笔记移入 `_atlas/crystals/`。导出 Canvas 会新建文件。
 
 ## 和猫猫一起读
 

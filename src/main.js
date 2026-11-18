@@ -206,9 +206,15 @@ function seminarThreadTitle(about) {
 // ═══════════════════════════════════════════════
 // Cat Cafe Client — connects to local Cat Cafe Hub API
 // ═══════════════════════════════════════════════
+// How long one request may take (ms). A request the cafe never answers would otherwise never end, and with it the read
+// it belongs to and every read queued behind that one (see connect). The cafe gives a search 15 s, so a search waits a
+// little longer and receives the cafe's own answer. Looking for a cafe on the usual ports does not wait that long.
+const CAFE_TIMEOUTS = { read: 15000, send: 20000, search: 20000, probe: 4000 };
+
 class CatCafeClient {
-  constructor(baseUrl) {
+  constructor(baseUrl, timeouts = CAFE_TIMEOUTS) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.timeouts = { ...CAFE_TIMEOUTS, ...timeouts };
     this.connected = false;
     this.cats = [];
     this.threads = [];
@@ -233,22 +239,33 @@ class CatCafeClient {
       if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
       reqOpts.contentType = headers['Content-Type'];
     }
-    try {
-      const resp = await obsidian.requestUrl(reqOpts);
-      if (resp.status >= 400) {
-        let reason = '';
-        try { reason = typeof resp.json?.error === 'string' ? resp.json.error : ''; } catch {}
-        throw new Error(reason ? `${reason}（HTTP ${resp.status}）` : `HTTP ${resp.status}`);
-      }
-      return resp.json;
-    } catch (err) {
-      throw err;
+    const resp = await this._inTime(obsidian.requestUrl(reqOpts), options.timeoutMs ?? this.timeouts[method === 'GET' ? 'read' : 'send']);
+    if (resp.status >= 400) {
+      let reason = '';
+      try { reason = typeof resp.json?.error === 'string' ? resp.json.error : ''; } catch {}
+      const error = new Error(reason ? `${reason}（HTTP ${resp.status}）` : `HTTP ${resp.status}`);
+      error.status = resp.status;
+      throw error;
     }
+    return options.whole ? resp : resp.json;
+  }
+
+  /** `request`, or a failure after `ms`: Obsidian's requestUrl has no time limit of its own and cannot be cancelled. */
+  _inTime(request, ms) {
+    let timer;
+    const late = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error(`猫咖在 ${ms >= 1000 ? `${Math.round(ms / 1000)} 秒` : `${ms} 毫秒`}内没有回应`);
+        error.timedOut = true;
+        reject(error);
+      }, ms);
+    });
+    return Promise.race([request, late]).finally(() => clearTimeout(timer));
   }
 
   /** True when `baseUrl` answers like a Cat Cafe: /api/health is ok and /api/cats lists cats (not just any "ok"). */
-  static async isCafe(baseUrl) {
-    const client = new CatCafeClient(baseUrl);
+  static async isCafe(baseUrl, timeouts = CAFE_TIMEOUTS) {
+    const client = new CatCafeClient(baseUrl, { ...timeouts, read: timeouts.probe ?? CAFE_TIMEOUTS.probe });
     if (!(await client.checkHealth())) return false;
     try {
       const data = await client._fetch('/api/cats');
@@ -327,6 +344,56 @@ class CatCafeClient {
     const thread = await this._fetch('/api/threads', { method: 'POST', body: JSON.stringify(body) });
     if (!thread?.id) throw new Error('猫咖没有返回新对话');
     return thread;
+  }
+
+  /**
+   * Whom a message with these words would go to, by the cafe's own rules (its read-only routing preview; nothing is
+   * sent or changed). Null when this cafe, or this conversation, has no preview to give.
+   */
+  async previewRecipients(threadId, words) {
+    const body = threadId ? { scope: 'thread', threadId, content: words } : { scope: 'new-thread', preferredCats: [], content: words };
+    try {
+      return await this._fetch('/api/routing/preview', { method: 'POST', body: JSON.stringify(body), timeoutMs: this.timeouts.read });
+    } catch (err) {
+      if (err.status === 404 || err.status === 403) return null;
+      throw err;
+    }
+  }
+
+  /**
+   * Post one message, once. `key` is its idempotency key: sent again with the same key (a resend after an answer that
+   * never came), the cafe gives back the message it already has instead of taking a second one.
+   *
+   * A message that quotes a note, a passage or another conversation says so by passing `words`: what the user wrote,
+   * apart from what is quoted. Its recipients are then settled from those words alone and sent as such, so an @ inside
+   * the quoted text summons no one (the cafe reads @ anywhere in a user's message otherwise). Where the cafe cannot
+   * preview, a note or passage goes as before; a message quoting the cafe's own conversations (`quotesCafe`), which
+   * are full of @, is not sent. `recipients` already settled (a resend) are used as they are.
+   */
+  async postMessage({ threadId = null, content, key, words = null, recipients = null, quotesCafe = false }) {
+    let to = recipients?.length ? [...recipients] : null;
+    if (!to && words !== null) {
+      let preview = null;
+      try {
+        preview = await this.previewRecipients(threadId, words);
+      } catch (err) {
+        if (quotesCafe) throw err;  // a note or passage goes as it always did
+      }
+      if (preview?.requiresConfirmation) throw new Error('指定的猫猫当前不可用，请换一只再发');
+      if (preview?.targetCats?.length) to = [...preview.targetCats];
+      else if (quotesCafe) throw new Error(preview ? '没有可以接收这条消息的猫猫' : '这个对话暂时无法确认收件人，带猫咖引用的消息没有发出');
+    }
+    const body = { content };
+    if (threadId) body.threadId = threadId;
+    if (key) body.idempotencyKey = key;
+    if (to) body.mentions = to;
+    try {
+      const resp = await this._fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      return { resp, recipients: to };
+    } catch (err) {
+      err.recipients = to;  // already settled: a resend goes to the same cats
+      throw err;
+    }
   }
 
   /**
@@ -2718,16 +2785,20 @@ class CafeChatView extends obsidian.ItemView {
 
     const request = passage ? passageMessage(passage, content) : content;
     let fullContent = request;
+    let quotes = Boolean(passage);  // the message carries text the user did not write just now
     if (this._attachNote && !passage) {  // a passage goes alone — never with the whole note, whatever the whole-note toggle was left at
       const file = this.app.workspace.getActiveFile();
       if (file) {
         const noteContent = await this.app.vault.read(file);
         const preview = noteContent.substring(0, 1000);
         fullContent = `[关于笔记「${file.basename}」]\n\n${preview}${noteContent.length > 1000 ? '\n...(truncated)' : ''}\n\n---\n${request}`;
+        quotes = true;
       }
     }
 
     // If user didn't write an explicit @handle and has summoned companion cats, append their @mentions on standalone lines so they respond!
+    // `words` is what the user wrote (with those lines), apart from anything quoted: recipients come from it alone.
+    let words = content;
     if (!/@\S+/.test(content)) {
       const summoned = this.plugin.getSummonedCats();
       if (summoned.length > 0) {
@@ -2736,6 +2807,7 @@ class CafeChatView extends obsidian.ItemView {
           return p?.mention || `@${c.nickname || c.name || c.id}`;
         });
         fullContent += '\n\n' + mentions.join('\n');
+        words += '\n\n' + mentions.join('\n');
       }
     }
 
@@ -2754,18 +2826,14 @@ class CafeChatView extends obsidian.ItemView {
     // A passage request gets its own identity; once the cafe has stored this message, its id is bound to the request,
     // so a 修改稿 answering it (and only such a reply) can replace this passage.
     const revisionId = passage ? `rq-${sentAt}-${Math.random().toString(36).slice(2, 6)}` : null;
+    // One key for this message, kept with it if it fails: resent, the cafe takes it once even when the first try did
+    // arrive and only its answer was lost.
+    const key = crypto.randomUUID();
     try {
       if (revisionId) await this.plugin.rememberPassageRequest(revisionId, cafe, threadId, passages);
       // the connection changed while the note was being read: never send to whatever is connected now
       if (this.plugin.cafeClient !== client) throw new Error('发送前猫咖连接已切换');
-      const body = { content: fullContent };
-      if (threadId) body.threadId = threadId;
-
-      const resp = await client._fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const { resp } = await client.postMessage({ threadId, content: fullContent, key, ...(quotes ? { words } : {}) });
       console.log('Clowder Atlas: Message sent, queued to', resp.entries?.map(e => e.targetCatId).join(', '));
       if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
       if (passage) await this.plugin.consumeChatPassages(passages);
@@ -2777,7 +2845,8 @@ class CafeChatView extends obsidian.ItemView {
       // reconnecting or restarting Obsidian does not lose it.
       const reason = err.message || '未知错误';
       new obsidian.Notice(`消息发送失败：${reason}。已留在对话里，可以重发或放回输入框`);
-      await this.plugin.recordFailedSend({ id, cafe, threadId, content, fullContent, ...(passage ? { passage: passages[0], passages, revisionId } : {}), error: reason, at: sentAt });
+      await this.plugin.recordFailedSend({ id, cafe, threadId, content, fullContent, key, ...(quotes ? { words } : {}), ...(err.recipients ? { recipients: err.recipients } : {}),
+        ...(passage ? { passage: passages[0], passages, revisionId } : {}), error: reason, at: sentAt });
       if (passage) await this.plugin.consumeChatPassages(passages);
     } finally {
       this._sending = false;
@@ -2862,9 +2931,13 @@ class CafeChatView extends obsidian.ItemView {
     if (!client || !plugin.isCafeConnected || !record.cafe || record.cafe !== client.baseUrl) return;
     if (!plugin.beginResend(record.id)) return;  // already on its way (its button may have been redrawn meanwhile)
     try {
-      const body = { content: record.fullContent || record.content };
-      if (record.threadId) body.threadId = record.threadId;
-      const resp = await client._fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      // A record from before sends had keys gets one now, saved before it goes, so this and any later resend land once.
+      if (!record.key) {
+        record = { ...record, key: crypto.randomUUID() };
+        await plugin.recordFailedSend(record);
+      }
+      const { resp } = await client.postMessage({ threadId: record.threadId || null, content: record.fullContent || record.content, key: record.key,
+        words: record.words ?? null, recipients: record.recipients || null });
       if (record.revisionId) await plugin.bindRevisionMessage(record.revisionId, resp?.userMessageId);  // it is the same request, sent again
       plugin.endResend(record.id);
       await plugin.dropFailedSend(record.id);
@@ -2875,7 +2948,7 @@ class CafeChatView extends obsidian.ItemView {
       const reason = err.message || '未知错误';
       new obsidian.Notice(`重发失败：${reason}`);
       // still kept, with the new reason — unless it was deleted meanwhile
-      if (plugin.getFailedSends().some((r) => r.id === record.id)) await plugin.recordFailedSend({ ...record, error: reason });
+      if (plugin.getFailedSends().some((r) => r.id === record.id)) await plugin.recordFailedSend({ ...record, ...(err.recipients ? { recipients: err.recipients } : {}), error: reason });
       else plugin._renderChatMessages();
     }
   }
@@ -3517,18 +3590,17 @@ class SeminarModal extends obsidian.Modal {
       this._syncWhere();
     }
     const threadId = opensNew ? this._opening.thread.id : this._threadSelect.value;
-    const body = { content, threadId };
+    // One key per seminar message from this dialog: started again after a failure, the same message lands once.
+    if (this._sent?.content !== content || this._sent.threadId !== threadId) this._sent = { content, threadId, key: crypto.randomUUID() };
+    const quotes = Boolean(passage) || Boolean(this._attachNote && this._targetFile);
+    const words = `${topic}\n\n${mentions.join('\n')}`;  // the user's topic and the cats picked; never the quoted note
     const revisionId = passage ? `rq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : null;
     if (revisionId) {  // a 修改稿 answering this seminar message, from any of its cats, can then replace this passage
       await this.plugin.rememberPassageRequest(revisionId, client.baseUrl, threadId, passages);
       if (!current()) return this._void();
     }
 
-    const resp = await client._fetch('/api/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const { resp } = await client.postMessage({ threadId, content, key: this._sent.key, ...(quotes ? { words } : {}) });
     // Sent, to this dialog's cafe: the revision request is bound to that message there, whatever the connection now
     if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
 
@@ -3588,6 +3660,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     this.summonedCatIds = new Set(this.settings.summonedCats || []);
     this.cafeScanPorts = [...CAFE_SCAN_PORTS];  // where findCafe() looks after the configured address
     this.cafePollMs = 30000;  // how often cats and threads are re-read while connected
+    this.cafeTimeouts = { ...CAFE_TIMEOUTS };  // per request; see CAFE_TIMEOUTS
     this._resending = new Set();  // failed sends being resent (see beginResend)
 
     // Our tabs already in the layout when the plugin is switched on in a running app (e.g. the first「信任仓库作者并启用插件」).
@@ -4169,7 +4242,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
   async _initCafeConnection() {
     const addr = this.settings.catCafeAddress || 'http://localhost:3004';
     this.cafeClient?.destroy();  // one client, one poll loop
-    const client = this.cafeClient = new CatCafeClient(addr);
+    const client = this.cafeClient = new CatCafeClient(addr, this.cafeTimeouts);
     // Disconnecting or switching address while this waits makes the attempt void: after every await it goes on only
     // while its client is still the plugin's client, so nothing is shown, saved or started for a stale connection.
     const current = () => this.cafeClient === client;
@@ -4240,7 +4313,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     const candidates = [this.settings.catCafeAddress, ...this.cafeScanPorts.map((p) => `http://localhost:${p}`)]
       .filter(Boolean).map((a) => a.trim().replace(/\/+$/, ''));
     for (const base of new Set(candidates)) {
-      if (await CatCafeClient.isCafe(base)) return base;
+      if (await CatCafeClient.isCafe(base, this.cafeTimeouts)) return base;
     }
     return null;
   }

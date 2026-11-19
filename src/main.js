@@ -724,11 +724,52 @@ class SpecParser {
 // Provenance Lens View
 // ═══════════════════════════════════════════════
 // A plain-text display summary only. Source collection/navigation keep the untouched passage below.
-// Backslash-escaped characters are held in private-use placeholders while emphasis markers go, then come back literally.
+// Backslash-escaped characters are held as placeholders while emphasis markers go, then come back literally. The
+// placeholders are private-use characters this text does not contain, so none of its own characters is taken for one.
 const LENS_ESCAPES = ['\\', '*', '_', '`', '[', ']', '#', '|'];
+function lensPlaceholders(text) {
+  const free = [];
+  for (let code = 0xE000; code <= 0xF8FF && free.length < LENS_ESCAPES.length; code++) {
+    if (!text.includes(String.fromCharCode(code))) free.push(String.fromCharCode(code));
+  }
+  return free.length === LENS_ESCAPES.length ? free : null;
+}
+/**
+ * One line as [{ code, text }]: inline code (a run of backticks up to the next run of the same length) apart from the
+ * rest. Escapes are read first, so an escaped backtick opens no code; inside code a backslash is only a backslash.
+ */
+function lensInlineParts(line, held) {
+  const parts = [];
+  let text = '';
+  for (let i = 0; i < line.length;) {
+    if (line[i] === '\\' && LENS_ESCAPES.includes(line[i + 1])) {
+      text += held[LENS_ESCAPES.indexOf(line[i + 1])];
+      i += 2;
+      continue;
+    }
+    if (line[i] !== '`') { text += line[i++]; continue; }
+    let run = 1;
+    while (line[i + run] === '`') run++;
+    let close = -1;
+    for (let j = i + run; j < line.length && close < 0;) {
+      if (line[j] !== '`') { j++; continue; }
+      let other = 1;
+      while (line[j + other] === '`') other++;
+      if (other === run) close = j;
+      j += other;
+    }
+    if (close < 0) { text += line.slice(i, i + run); i += run; continue; }  // no closing run: plain backticks
+    parts.push({ code: false, text }, { code: true, text: line.slice(i + run, close) });
+    text = '';
+    i = close + run;
+  }
+  parts.push({ code: false, text });
+  return parts;
+}
 function formatLensSnippetPreview(rawText) {
-  const hold = text => text.replace(/\\([\\*_`[\]#|])/g, (_, ch) => String.fromCharCode(0xE000 + LENS_ESCAPES.indexOf(ch)));
-  const release = text => text.replace(/[-]/g, ch => LENS_ESCAPES[ch.charCodeAt(0) - 0xE000]);
+  const held = lensPlaceholders(rawText);
+  if (!held) return rawText;
+  const release = text => text.replace(new RegExp(`[${held.join('')}]`, 'g'), ch => LENS_ESCAPES[held.indexOf(ch)]);
   const linkLabel = link => {
     const [target, alias] = link.split('|');
     if (alias?.trim()) return alias.trim();
@@ -737,19 +778,18 @@ function formatLensSnippetPreview(rawText) {
     const section = heading.trim().startsWith('^') ? '' : heading.trim();
     return name && section ? `${name} › ${section}` : name || section;
   };
-  return rawText.split('\n').map(line => line
+  return rawText.split('\n').map(line => lensInlineParts(line
     .replace(/^\s*(?:>\s*)+\[![^\]]+\][+-]?\s*/, '')
-    .replace(/^\s*(?:>\s*)+/, '')
-    .split(/(`+[^`\n]*`+)/g).map((part, i) => i % 2
-      ? part.replace(/^(`+)([\s\S]*?)\1$/, '$2')
-      : release(hold(part)
-        .replace(/!?\[\[([^\]\n]+)\]\]/g, (_, link) => `「${linkLabel(link)}」`)
-        .replace(/\*\*(?!\s)([^*\n]*?\S)\*\*/g, '$1')
-        .replace(/(^|[^\p{L}\p{N}_])__(?!\s)([^_\n]*?\S)__(?![\p{L}\p{N}_])/gu, '$1$2')
-        .replace(/(^|[^\p{L}\p{N}*])\*(?!\s)([^*\n]*?\S)\*(?![\p{L}\p{N}*])/gu, '$1$2')
-        .replace(/(^|[^\p{L}\p{N}_])_(?!\s)([^_\n]*?\S)_(?![\p{L}\p{N}_])/gu, '$1$2'))
-    ).join('')
-  ).join('\n');
+    .replace(/^\s*(?:>\s*)+/, ''), held
+  ).map(part => part.code
+    ? part.text
+    : release(part.text
+      .replace(/!?\[\[([^\]\n]+)\]\]/g, (_, link) => `「${linkLabel(link)}」`)
+      .replace(/\*\*(?!\s)([^*\n]*?\S)\*\*/g, '$1')
+      .replace(/(^|[^\p{L}\p{N}_])__(?!\s)([^_\n]*?\S)__(?![\p{L}\p{N}_])/gu, '$1$2')
+      .replace(/(^|[^\p{L}\p{N}*])\*(?!\s)([^*\n]*?\S)\*(?![\p{L}\p{N}*])/gu, '$1$2')
+      .replace(/(^|[^\p{L}\p{N}_])_(?!\s)([^_\n]*?\S)_(?![\p{L}\p{N}_])/gu, '$1$2'))
+  ).join('')).join('\n');
 }
 
 // Exact source paragraphs: collection and navigation use the same raw text and positions.
@@ -795,11 +835,27 @@ async function lensNetwork(app, file) {
     return Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [];
   };
   const incoming = [], outgoing = [], derived = [];
+  for (const candidate of app.vault.getMarkdownFiles()) {
+    if (candidate.path === file.path) continue;
+    const fm = cache.getFileCache(candidate)?.frontmatter;
+    if (!['pending', 'crystallized'].includes(fm?.memory_status)) continue;
+    if (related(candidate).some(raw => resolve(raw, candidate)?.path === file.path)) {
+      derived.push({ path: candidate.path, file: candidate, status: fm.memory_status, authors: fm.atlas_authors || [] });
+    }
+  }
   for (const [path, targets] of Object.entries(cache.resolvedLinks || {})) {
     if (path === file.path || !targets[file.path]) continue;
     const source = app.vault.getAbstractFileByPath(path);
     if (!source || source.extension !== 'md') continue;
-    const link = (cache.getFileCache(source)?.links || []).find(l => resolve(l.link, source)?.path === file.path);
+    let links = (cache.getFileCache(source)?.links || []).filter(l => resolve(l.link, source)?.path === file.path);
+    if (derived.some(item => item.path === path)) {
+      // Already listed under 由此篇提炼: it is a card here only when its own text cites this note, not for the
+      // 来源上下文 block it was created with. Only the notes derived from this one are read for that.
+      const block = lensSourceBlock(await app.vault.cachedRead(source));
+      links = links.filter(l => !block || l.position?.start?.line < block.from || l.position?.start?.line > block.to);
+      if (!links.length) continue;
+    }
+    const link = links[0];
     incoming.push({ path, file: source, kind: link ? '正文引用' : '属性关联', line: link?.position?.start?.line ?? null });
   }
   const seen = new Set();
@@ -811,16 +867,18 @@ async function lensNetwork(app, file) {
   };
   for (const raw of related(file)) add(raw, '研讨源笔记');
   for (const link of cache.getFileCache(file)?.links || []) add(link.link, '正文引用');
-  for (const candidate of app.vault.getMarkdownFiles()) {
-    if (candidate.path === file.path) continue;
-    const fm = cache.getFileCache(candidate)?.frontmatter;
-    if (!['pending', 'crystallized'].includes(fm?.memory_status)) continue;
-    if (related(candidate).some(raw => resolve(raw, candidate)?.path === file.path)) {
-      derived.push({ path: candidate.path, file: candidate, status: fm.memory_status, authors: fm.atlas_authors || [] });
-    }
-  }
   // Reads are lazy, when a card is displayed. Opening a popular note never reads its entire backlink corpus.
   return { incoming, outgoing, derived };
+}
+
+/** The lines of the 来源上下文 block a pending note is created with (see saveMessageAsPendingNote); null without one. */
+function lensSourceBlock(content) {
+  const lines = content.split('\n');
+  const from = lines.findIndex(text => /^>\s*\[!abstract\]\s*来源上下文\s*$/.test(text));
+  if (from < 0) return null;
+  let to = from;
+  while (to + 1 < lines.length && lines[to + 1].startsWith('>')) to++;
+  return { from, to };
 }
 
 function lensThreads(plugin, file) {

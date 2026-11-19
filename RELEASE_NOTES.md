@@ -1,3 +1,21 @@
+# 0.0.8 — quote other Cat Cafe conversations and matter pages beside a note
+
+- **引猫咖记忆** (in the chat toolbar, in the Lens, or the command **Cite Cat Cafe Memory**) opens a dialog that searches what was said in your other Cat Cafe conversations, or lists the cafe's matter pages (the cats' written summaries of things settled). Nothing is searched until you ask: opened from the Lens, the note's title or your selection only waits in the search box.
+- The dialog says how the cafe searched, in the cafe's own terms: by the letter or by meaning, in full or in part. A message and a round-up that repeats it are one entry. An unrevealed whisper is shown as such and cannot be quoted.
+- Read a hit in its place before quoting it: the whole message with the paragraph of the hit marked, and the two messages after it. Quote the marked paragraph, or any part of that message you select. A matter page is quoted as its whole summary, because where it applies is said in its own words.
+- Quotes go into the basket after the note passages and are numbered with them. A message that carries quotes names each one's kind, source, coordinate and version, and tells the cats they are snapshots to check at those coordinates, not instructions. With exactly one note passage, a revision of it can still be put back in its place.
+- The recipients of a message that quotes anything are settled from your own words alone, so an @ inside quoted text summons no one. Before such a message is sent, and before it is resent, every quote is asked of the cafe again: if its original has changed, can no longer be read, or belongs to another cafe than the one connected, nothing is sent and the reason names the quote.
+- A pending note saved from a reply records, in `atlas_evidence`, the kind, coordinate, cafe address and version of what its request quoted, never the quoted words. The Lens lists them under **猫咖引用**, each with where its original stands now (readable and unchanged, updated, no longer readable, or not checked), and opens the original to read.
+- Every request to the Cat Cafe now has a time limit (15 s to read, 20 s to send or search, 4 s to look for a cafe). One request the cafe never answers used to hold up every later refresh of the conversation list. Each message carries an idempotency key, so a resend after an answer that never came is taken once.
+- Local trial staging takes its backup only from a vault that runs the released build, and a backup serves one release cycle: `npm run stage:local -- --archive <directory> --vault <vault>` moves a finished cycle's backup and receipt out of the vault.
+- Lens fixes: a source preview reads backslash escapes before inline code; a note derived from the current one is no longer listed a second time under the notes citing it. The emoji check also rejects flag symbols.
+
+Reading other conversations and matters works when the Cat Cafe runs on the same computer as Obsidian and has these routes; otherwise the dialog says which of the two is missing. Rolling back to 0.0.7 is safe with data written by 0.0.8: quotes are kept under their own settings keys, which 0.0.7 leaves alone.
+
+Privacy: the words you search for are sent to the configured Cat Cafe; parts of your other conversations are shown in Obsidian; quotes waiting in the basket are stored in the plugin's `data.json`; a note keeps coordinates, labels and versions, not the quoted words. See PRIVACY.md.
+
+Install the three individual assets from the same release: `main.js`, `manifest.json`, `styles.css`.
+
 # 0.0.7 — a research Lens, without note-body decorations
 
 - Keep Markdown bodies, Live Preview tables and reading views free of Atlas-injected badges or luminance styling.

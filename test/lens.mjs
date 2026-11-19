@@ -21,6 +21,9 @@ assert.equal(h.preview('> [!abstract]+ 来源\n> **重点** / __结论__ / *斜�
 assert.equal(h.preview('[[A/目标#小节]] [[#本地小节]] `__init__` ``a * b`` user_id <img src=x>'), '「目标 › 小节」 「本地小节」 __init__ a * b user_id <img src=x>', 'display formatting preserves literal code, identifiers and text-only content');
 assert.equal(h.preview('\\*字面星号\\* 与 \\_下划线\\_ 与 [[笔记#^块]] 与 `a\\*b`'), '*字面星号* 与 _下划线_ 与 「笔记」 与 a\\*b', 'escaped markers stay literal, block references show the note, code keeps its backslashes');
 assert.equal(h.preview('2 * a * b，_ 强调 _，user_id'), '2 * a * b，_ 强调 _，user_id', 'spaced mathematical operators are not Markdown emphasis');
+assert.equal(h.preview('字面 \\` 反引号，再来 `code` 一段'), '字面 ` 反引号，再来 code 一段', 'an escaped backtick does not open inline code');
+assert.equal(h.preview('**粗体 \\* 星号** 与 ``a`b`` 与 落单 ` 反引号'), '粗体 * 星号 与 a`b 与 落单 ` 反引号', 'emphasis reads across an escaped marker; code keeps a backtick; a lone backtick stays');
+assert.equal(h.preview('私用区  原样，\\* 星号'), '私用区  原样，* 星号', 'private-use characters already in the text are not turned into markers');
 const text='---\nsecret: DO-NOT-EXCERPT\n---\n# 标题\n\n第一段正文。\n第二行。\n\n末段。';
 const excerpt=h.excerpt(target,text);
 assert.equal(excerpt.text,'第一段正文。\n第二行。');
@@ -53,6 +56,23 @@ const firstDest=app.metadataCache.getFirstLinkpathDest;
 app.metadataCache.getFirstLinkpathDest=raw=>raw==='paper.pdf'?pdf:firstDest(raw);
 assert.equal((await h.network(app,target)).outgoing[2].file,pdf,'an existing PDF retains its real destination and can be opened without extracting binary text');
 assert.equal((await h.network(app,other)).incoming.length,0,'same basenames are distinct source files');
+// A note the cats derived from this one names it twice over: in its related property and in the 来源上下文 block it was
+// created with. It is listed under 由此篇提炼, so it is a card under 引用此篇的笔记 only when its own text cites the note.
+const derivedOnly=file('_atlas/pending/要点-1.md'), derivedCiting=file('_atlas/pending/要点-2.md');
+const generated='# 要点\n\n> 由 **宪宪** 在猫咖研讨中提出，待审阅后点亮结晶\n\n> [!abstract] 来源上下文\n> - **交叉引用笔记**：[[A/同名]]\n\n';
+files.push(derivedOnly,derivedCiting);
+bodies.set(derivedOnly.path,generated+'正文没有再提到源笔记。');
+bodies.set(derivedCiting.path,generated+'正文里引用了 [[A/同名]] 的说法。');
+const inBlock={link:'A/同名',position:{start:{line:5}}}, inText={link:'A/同名',position:{start:{line:7}}};
+cache.set(derivedOnly.path,{frontmatter:{memory_status:'pending',related:['[[A/同名]]']},links:[inBlock]});
+cache.set(derivedCiting.path,{frontmatter:{memory_status:'pending',related:['[[A/同名]]']},links:[inBlock,inText]});
+app.metadataCache.resolvedLinks[derivedOnly.path]={[target.path]:1};
+app.metadataCache.resolvedLinks[derivedCiting.path]={[target.path]:2};
+const withDerived=await h.network(app,target);
+assert.deepEqual(Array.from(withDerived.derived,e=>e.path).sort(),[derivedOnly.path,derivedCiting.path].sort());
+assert.equal(withDerived.incoming.some(e=>e.path===derivedOnly.path),false,'a derived note that names its source only in the generated block is not listed twice');
+assert.equal(withDerived.incoming.find(e=>e.path===derivedCiting.path)?.line,7,'a derived note whose own text cites the source shows that sentence, not the generated block');
+assert.equal(withDerived.incoming.some(e=>e.path===inbound.path),true,'ordinary notes citing this one are listed as before');
 const client={baseUrl:'http://a',threads:[{id:'a',title:'renamed'},{id:'b',title:'《同名》 unrelated'},{id:'c',title:'other cafe'}]};
 const plugin={cafeClient:client,settings:{revisionTargets:{r:{cafe:'http://a',threadId:'a',path:target.path,messageIds:['u']},failed:{cafe:'http://a',threadId:'b',path:target.path,messageIds:[]}},passageRequests:{x:{cafe:'http://b',threadId:'c',passages:[{path:target.path}],messageIds:['u']}}}};
 assert.deepEqual(Array.from(h.threads(plugin,target),t=>t.id),['a'],'thread association uses path and cafe, not a coincidentally matching title');

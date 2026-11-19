@@ -33,7 +33,11 @@ assert(!/\b(?:eval\s*\(|new\s+Function\s*\(|import\s*\(|innerHTML\s*=|outerHTML\
 const imports = [...src.matchAll(/\brequire\(['"]([^'"]+)['"]\)/g)].map(m => m[1]);
 assert.deepEqual([...new Set(imports)], ['obsidian']);
 // Zero-emoji UI: icons are Obsidian's own line icons (setIcon), labels are plain text. Comments are held to it too.
-const decorative = /[\p{Extended_Pictographic}\u{FE0F}\u{20E3}★☆◆◇✦✧✓✔✗✘✕＋↻↩↗↖←⬆⬇]/u;
+const decorative = /[\p{Extended_Pictographic}\p{Regional_Indicator}\u{FE0F}\u{20E3}★☆◆◇✦✧✓✔✗✘✕＋↻↩↗↖←⬆⬇]/u;
+// The gate, checked on itself: a pictograph, a flag (two regional indicators), a keycap and a tick are caught; the
+// punctuation the UI text does use is not.
+for (const symbol of ['\u{1F43E}', '\u{1F1E8}\u{1F1F3}', '1\u{FE0F}\u{20E3}', '\u{2713}']) assert(decorative.test(symbol), `the emoji gate misses ${JSON.stringify(symbol)}`);
+assert(!decorative.test('透镜 · 对话 — 「引用篮」 #1 + 引用篮 → 第 3–5 行 × … ›'), 'the emoji gate rejects plain punctuation');
 for (const name of ['src/main.js', 'src/styles.css']) {
   const hits = (await read(name)).split('\n').flatMap((line, i) => decorative.test(line) ? [`${name}:${i + 1}: ${line.trim().slice(0, 80)}`] : []);
   assert.deepEqual(hits, [], `emoji or decorative symbols in the plugin UI:\n${hits.join('\n')}`);

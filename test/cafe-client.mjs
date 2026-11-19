@@ -14,8 +14,8 @@ const requestUrl = (opts) => {
   const answer = answers.get(key);
   if (answer === 'hang') return new Promise(() => {});
   if (answer instanceof Error) return Promise.reject(answer);
-  const { status = 200, json = {}, headers = {} } = typeof answer === 'function' ? answer(opts, url) : (answer || { status: 404, json: { error: 'not found' } });
-  return Promise.resolve({ status, json, headers });
+  const out = typeof answer === 'function' ? answer(opts, url) : (answer || { status: 404, json: { error: 'not found' } });
+  return Promise.resolve(out).then(({ status = 200, json = {}, headers = {} }) => ({ status, json, headers }));
 };
 const host = { Plugin: class {}, ItemView: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {}, requestUrl };
 const box = { module: { exports: {} }, require: (n) => { if (n === 'obsidian') return host; throw Error(n); }, console: { ...console, warn() {}, log() {} }, URL, Set, Map, setTimeout, clearTimeout, setInterval() {}, clearInterval() {}, crypto };
@@ -101,6 +101,24 @@ answers.set('/api/messages', 'hang');
 seen.length = 0;
 const lost = await within(client.postMessage({ threadId: 't1', content: quoted, key: K, words: '我的问题' }), 600);
 ok('the cafe never answers the send: it fails in time, as timed out', lost.settled && /没有回应/.test(lost.error || ''), JSON.stringify(lost));
+
+// 5. The connection is replaced while the recipients are being settled (砚砚's pre-review of 6c459d8): the old
+// client has not started the delivery yet, and must not start it.
+healthy();
+let release;
+answers.set('/api/routing/preview', () => new Promise((resolve) => { release = () => resolve({ json: { targetCats: ['cat-a'], reason: { kind: 'current_message_mentions' } } }); }));
+answers.set('/api/messages', () => ({ json: { userMessageId: 'um-2', entries: [] } }));
+const old = new CatCafeClient('http://localhost:3004');
+old.timeouts = { read: 500, send: 500, search: 500 };
+seen.length = 0;
+const pending = old.postMessage({ threadId: 't1', content: quoted, key: K, words: '我的问题' });
+await new Promise((r) => setTimeout(r, 20));
+old.destroy();  // what _initCafeConnection and disconnecting do to the client they replace
+release();
+const switched = await within(pending, 400);
+ok('the connection was replaced while the preview was out: nothing is posted from the old client', switched.settled && /连接/.test(switched.error || '') && posts().length === 0, JSON.stringify({ switched, posts: posts().length }));
+const dead = await within(old.postMessage({ threadId: 't1', content: '一句话', key: K }), 300);
+ok('…nor is a message started on a client already replaced', dead.settled && /连接/.test(dead.error || '') && posts().length === 0, JSON.stringify({ dead, posts: posts().length }));
 
 console.log(fail ? `FAILED ${fail}` : 'ALL PASS');
 process.exitCode = fail ? 1 : 0;

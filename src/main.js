@@ -250,6 +250,17 @@ class CatCafeClient {
     return options.whole ? resp : resp.json;
   }
 
+  /**
+   * A client the plugin has replaced or disconnected (see destroy) starts no delivery: a message that was still being
+   * prepared when the connection changed is not sent to the cafe that was connected before.
+   */
+  _stillInUse() {
+    if (!this.destroyed) return;
+    const error = new Error('发送前猫咖连接已切换');
+    error.replaced = true;
+    throw error;
+  }
+
   /** `request`, or a failure after `ms`: Obsidian's requestUrl has no time limit of its own and cannot be cancelled. */
   _inTime(request, ms) {
     let timer;
@@ -371,6 +382,7 @@ class CatCafeClient {
    * are full of @, is not sent. `recipients` already settled (a resend) are used as they are.
    */
   async postMessage({ threadId = null, content, key, words = null, recipients = null, quotesCafe = false }) {
+    this._stillInUse();
     let to = recipients?.length ? [...recipients] : null;
     if (!to && words !== null) {
       let preview = null;
@@ -383,6 +395,7 @@ class CatCafeClient {
       if (preview?.targetCats?.length) to = [...preview.targetCats];
       else if (quotesCafe) throw new Error(preview ? '没有可以接收这条消息的猫猫' : '这个对话暂时无法确认收件人，带猫咖引用的消息没有发出');
     }
+    this._stillInUse();  // the preview was awaited: the plugin may have come to another connection meanwhile
     const body = { content };
     if (threadId) body.threadId = threadId;
     if (key) body.idempotencyKey = key;
@@ -3600,7 +3613,13 @@ class SeminarModal extends obsidian.Modal {
       if (!current()) return this._void();
     }
 
-    const { resp } = await client.postMessage({ threadId, content, key: this._sent.key, ...(quotes ? { words } : {}) });
+    let resp;
+    try {
+      ({ resp } = await client.postMessage({ threadId, content, key: this._sent.key, ...(quotes ? { words } : {}) }));
+    } catch (err) {
+      if (err.replaced) return this._void();  // not started: the connection changed while its recipients were settled
+      throw err;
+    }
     // Sent, to this dialog's cafe: the revision request is bound to that message there, whatever the connection now
     if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
 

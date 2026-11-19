@@ -2442,3 +2442,67 @@ body.theme-light .atlas-lens-snippet { background: rgba(0, 0, 0, 0.03); }
 .atlas-cafe-chat button.atlas-companion-seminar-pill { color: var(--atlas-text-body); background: var(--atlas-bg-subtle); border-color: var(--atlas-border-card); }
 .atlas-cafe-chat button.atlas-chat-action-pill { font-weight: 500; color: var(--atlas-text-body); background: var(--atlas-bg-subtle); border-color: var(--atlas-border-card); }
 .atlas-cafe-chat button.atlas-chat-action-pill:hover:not(:disabled) { color: var(--atlas-text-title); background: var(--atlas-bg-card-hover); border-color: var(--atlas-border-hover); }
+
+/* ═══════════════════════════════════════════════
+   Cafe citations: words from other cafe conversations and matter pages, quoted beside the note.
+   Under the same rule as the Lens: neutral surfaces, text labels, the accent only on what is active or needs a look.
+   ═══════════════════════════════════════════════ */
+
+/* Chat: the way in, beside the attach toggle; the icon alone when the pane is narrow */
+.atlas-cafe-chat button.atlas-chat-cite-btn { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: 0 0 auto; width: auto; height: auto; min-width: 0; min-height: 28px; margin: 0; padding: 3px 8px; font: inherit; font-size: 11px; font-weight: 500; line-height: 1.35; white-space: nowrap; text-transform: none; letter-spacing: normal; border: 1px solid var(--atlas-border-card); border-radius: 999px; background: transparent; color: var(--atlas-text-sub); box-shadow: none; cursor: pointer; }
+.atlas-cafe-chat button.atlas-chat-cite-btn:hover:not(:disabled) { background: var(--atlas-bg-card-hover); border-color: var(--atlas-border-hover); color: var(--atlas-text-title); }
+@container (max-width: 380px) {
+  .atlas-chat-cite-label { display: none; }
+}
+
+/* Basket chips: a long label is cut at its end, never at both (the host centres a button's content) */
+.atlas-cafe-chat button.atlas-chat-passage-chip-jump { display: block; line-height: 20px; text-align: left; }
+/* A quote from the cafe has a dashed outline; one from another cafe than the one connected is struck out */
+.atlas-chat-passage-chip.is-cafe { border-style: dashed; }
+.atlas-chat-passage-chip.is-elsewhere { opacity: 0.6; }
+.atlas-chat-passage-chip.is-elsewhere .atlas-chat-passage-chip-jump { text-decoration: line-through; }
+
+/* Lens: what this note quotes from the cafe, each with where its original stands now */
+.atlas-lens-cite-title { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.atlas-lens-v2 button.atlas-lens-cite-find,
+.atlas-lens-v2 button.atlas-lens-cite-open { flex-shrink: 0; height: 22px; gap: 5px; padding: 0 8px; font-size: 11px; border-radius: 4px; background: transparent; border: 1px solid var(--atlas-border-card); color: var(--atlas-text-sub); box-shadow: none; }
+.atlas-lens-v2 button.atlas-lens-cite-find:hover:not(:disabled),
+.atlas-lens-v2 button.atlas-lens-cite-open:hover:not(:disabled) { color: var(--atlas-text-title); border-color: var(--atlas-border-hover); }
+.atlas-lens-cite { min-width: 0; margin-top: 8px; padding: 9px 12px; border: 1px solid var(--atlas-border-card); border-radius: 7px; background: var(--atlas-bg-card); }
+.atlas-lens-cite-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.atlas-lens-cite-top .atlas-lens-kind-badge { flex-shrink: 0; }
+.atlas-lens-cite-label { min-width: 0; font-size: 12.5px; color: var(--atlas-text-title); overflow-wrap: anywhere; }
+.atlas-lens-cite-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 6px; }
+.atlas-lens-cite-state { margin-right: auto; font-size: 11px; color: var(--atlas-text-sub); }
+.atlas-lens-cite-state[data-state="updated"],
+.atlas-lens-cite-state[data-state="gone"] { color: var(--atlas-accent-primary); font-weight: 600; }
+
+/* The dialog: search or browse, then read the original in its place before quoting */
+.modal.atlas-memory-frame { width: min(720px, 92vw); }
+.atlas-memory-modal [hidden] { display: none !important; }
+.atlas-memory-modal h3 { margin: 0 0 6px; }
+.atlas-memory-desc { margin: 0 0 12px; font-size: 12.5px; color: var(--atlas-text-sub); }
+.atlas-memory-tabs { display: inline-flex; gap: 2px; padding: 2px; margin-bottom: 10px; border-radius: 6px; background: var(--atlas-bg-subtle); border: 1px solid var(--atlas-border-card); }
+.atlas-memory-modal button.atlas-memory-tab { height: 26px; padding: 0 14px; font-size: 12px; font-weight: 500; border-radius: 4px; border: 1px solid transparent; background: transparent; color: var(--atlas-text-sub); box-shadow: none; }
+.atlas-memory-modal button.atlas-memory-tab.is-active { color: var(--atlas-text-title); font-weight: 600; background: var(--atlas-surface); border-color: var(--atlas-border-card); }
+.atlas-memory-search { display: flex; gap: 8px; }
+.atlas-memory-modal input.atlas-memory-input { flex: 1 1 0; min-width: 0; }
+.atlas-memory-status { margin: 10px 0 6px; font-size: 12px; line-height: 1.5; color: var(--atlas-text-sub); }
+.atlas-memory-results { display: grid; gap: 8px; max-height: 52vh; overflow-y: auto; padding-right: 2px; }
+.atlas-memory-row { min-width: 0; padding: 10px 12px; border: 1px solid var(--atlas-border-card); border-radius: 7px; background: var(--atlas-bg-card); }
+.atlas-memory-row-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; }
+.atlas-memory-row-title { min-width: 0; font-size: 13px; color: var(--atlas-text-title); overflow-wrap: anywhere; }
+.atlas-memory-row-meta { margin: 0; font-size: 11.5px; color: var(--atlas-text-sub); }
+.atlas-memory-snippet { margin: 6px 0 0; padding: 5px 10px; border-left: 2px solid var(--atlas-border-hover); font-size: 12.5px; line-height: 1.6; color: var(--atlas-text-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+.atlas-memory-modal mark.atlas-memory-mark { padding: 0 1px; border-radius: 2px; background: color-mix(in srgb, var(--atlas-accent-primary) 28%, transparent); color: inherit; }
+.atlas-memory-row-note { margin: 6px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--atlas-text-sub); }
+.atlas-memory-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.atlas-memory-modal .atlas-memory-actions button,
+.atlas-memory-modal button.atlas-memory-back { height: 26px; gap: 5px; padding: 0 10px; font-size: 12px; }
+.atlas-memory-view-bar { margin-bottom: 8px; }
+.atlas-memory-view-title { margin: 0 0 2px; font-size: 14px; overflow-wrap: anywhere; }
+.atlas-memory-body { margin: 8px 0 0; padding: 10px 12px; max-height: 38vh; overflow-y: auto; border: 1px solid var(--atlas-border-card); border-radius: 7px; background: var(--atlas-bg-card); color: var(--atlas-text-body); font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.atlas-memory-modal mark.atlas-memory-hit { padding: 1px 0; background: color-mix(in srgb, var(--atlas-accent-primary) 22%, transparent); color: inherit; box-shadow: -2px 0 0 var(--atlas-accent-primary); }
+.atlas-memory-after-title { margin: 12px 0 4px; font-size: 11.5px; font-weight: 600; color: var(--atlas-text-sub); }
+.atlas-memory-after { margin-top: 6px; padding: 5px 10px; border-left: 2px solid var(--atlas-border-card); }
+.atlas-memory-after-text { margin: 2px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--atlas-text-body); white-space: pre-wrap; overflow-wrap: anywhere; }

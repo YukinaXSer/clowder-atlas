@@ -120,5 +120,79 @@ ok('the connection was replaced while the preview was out: nothing is posted fro
 const dead = await within(old.postMessage({ threadId: 't1', content: '一句话', key: K }), 300);
 ok('…nor is a message started on a client already replaced', dead.settled && /连接/.test(dead.error || '') && posts().length === 0, JSON.stringify({ dead, posts: posts().length }));
 
+// 6. Other conversations and matters are read with the cafe's own session: asked for once, carried as a cookie by
+// hand, asked for again when the cafe no longer knows it. A failure says which kind it is.
+healthy();
+let issued = 0, valid = 1;
+const session = () => { issued++; return { json: { userId: 'default-user', csrfToken: 'x' }, headers: { 'set-cookie': [`cat_cafe_session=tok-${issued}; Path=/; HttpOnly; SameSite=Strict`] } }; };
+const guarded = (json) => (opts) => (opts.headers.Cookie === `cat_cafe_session=tok-${valid}` ? { json } : { status: 401, json: { error: 'Message search identity required' } });
+answers.set('/api/session', session);
+answers.set('/api/evidence/search', guarded({ results: [], meta: { effectiveMode: 'lexical' } }));
+answers.set('/api/evidence/navigation-source', guarded({ status: 'available', updated: false }));
+answers.set('/api/memory/matters', guarded({ items: [] }));
+answers.set('/api/memory/matters/m%201', guarded({ matter: { matterId: 'm 1', revision: 1, status: 'active' }, entries: [] }));
+const reader = new CatCafeClient('http://localhost:3004');
+reader.timeouts = { read: 80, send: 80, search: 120, probe: 80 };
+const of = (p) => seen.filter((r) => r.path === p);
+const failed = (promise) => promise.then(() => ({ memory: 'none: it answered' }), (e) => ({ memory: e.memory, message: e.message }));
+seen.length = 0;
+const found = await reader.searchMessages('遗忘 机制&x');
+ok('a search asks for a session first, then carries its cookie', found.meta.effectiveMode === 'lexical' && of('/api/session').length === 1 && of('/api/evidence/search')[0].headers.Cookie === 'cat_cafe_session=tok-1', JSON.stringify(seen.map((r) => [r.path, r.headers.Cookie])));
+const sq = new URL('http://x' + of('/api/evidence/search')[0].path + of('/api/evidence/search')[0].search).searchParams;
+ok('…for messages, by relevance, with the words as typed', sq.get('resultUnit') === 'message' && sq.get('messageSort') === 'relevance' && sq.get('limit') === '20' && sq.get('q') === '遗忘 机制&x', of('/api/evidence/search')[0].search);
+await reader.readSource({ threadId: 'thread a', messageId: 'm#1', version: 'rev1' }, 2);
+await reader.readSource({ threadId: 'thread a', messageId: 'm#1', version: 'rev1' });
+const [withContext, bare] = of('/api/evidence/navigation-source').map((r) => new URL('http://x/' + r.search).searchParams);
+ok('a message is read by its whole coordinate and the revision it was quoted at', withContext.get('threadId') === 'thread a' && withContext.get('messageId') === 'm#1' && withContext.get('contentRevision') === 'rev1' && withContext.get('contextCount') === '2');
+ok('…with its text and what follows only when asked', !bare.has('contextCount') && bare.get('contentRevision') === 'rev1');
+await reader.listMatters('入库 & 导读');
+await reader.readMatter('m 1');
+ok('matters: the directory with a filter, a page by its id', new URL('http://x/' + of('/api/memory/matters')[0].search).searchParams.get('query') === '入库 & 导读' && of('/api/memory/matters/m%201').length === 1);
+ok('one session serves all of these', issued === 1 && of('/api/session').length === 1, String(issued));
+seen.length = 0;
+await reader.connect('/vault');
+await reader.postMessage({ threadId: 't1', content: '一句话', key: K }).catch(() => {});
+ok('the cookie goes on these reads only: not on the roster, not on a sent message', seen.length > 0 && seen.every((r) => r.headers.Cookie === undefined), JSON.stringify(seen.map((r) => [r.path, r.headers.Cookie])));
+
+valid = 2;  // the cafe restarted: it no longer knows the first session
+seen.length = 0;
+const afterRestart = await within(reader.searchMessages('再搜'), 600);
+ok('a session the cafe no longer knows is asked for again, once, and the read then answers', afterRestart.settled && !afterRestart.error && issued === 2 && of('/api/evidence/search').length === 2, JSON.stringify({ afterRestart, issued }));
+valid = 99;  // refused whatever the session: this is not a direct request from the cafe's own computer
+seen.length = 0;
+const notLocal = await failed(reader.searchMessages('三搜'));
+ok('refused again with a fresh session: only on the cafe\'s own computer, and it stops there', notLocal.memory === 'local' && of('/api/evidence/search').length === 2 && of('/api/session').length === 1, JSON.stringify({ notLocal, n: seen.length }));
+answers.set('/api/session', () => ({ json: { userId: 'unpaired-user', csrfToken: 'x' }, headers: { 'set-cookie': ['cat_cafe_session=lan; Path=/'] } }));
+const lan = new CatCafeClient('http://192.168.1.9:3004');
+seen.length = 0;
+const unpaired = await failed(lan.searchMessages('x'));
+ok('a cafe that gives an unpaired session is not asked for anything more', unpaired.memory === 'local' && of('/api/evidence/search').length === 0);
+
+answers.set('/api/session', session);
+valid = issued + 1;
+const fresh = () => { const c = new CatCafeClient('http://localhost:3004'); c.timeouts = { read: 80, send: 80, search: 120, probe: 80 }; valid = issued + 1; return c; };
+answers.set('/api/evidence/search', { status: 404, json: { message: 'Route GET:/api/evidence/search not found', error: 'Not Found', statusCode: 404 } });
+ok('a cafe without the route: unsupported', (await failed(fresh().searchMessages('x'))).memory === 'unsupported');
+answers.set('/api/evidence/navigation-source', { status: 404, json: { error: 'Source unavailable' } });
+ok('a message the cafe no longer gives: gone, not unsupported', (await failed(fresh().readSource({ threadId: 't', messageId: 'm' }))).memory === 'gone');
+answers.set('/api/evidence/navigation-source', { status: 403, json: { error: 'Source is not accessible' } });
+ok('a message the user may no longer read: gone', (await failed(fresh().readSource({ threadId: 't', messageId: 'm' }))).memory === 'gone');
+answers.set('/api/memory/matters/m%201', { status: 404, json: { error: 'not_available', message: 'This page or source is not currently available to this reader.' } });
+ok('a matter page no longer available: gone', (await failed(fresh().readMatter('m 1'))).memory === 'gone');
+answers.set('/api/evidence/search', { status: 503, json: { error: 'Message search unavailable', degraded: true, degradeReason: 'message_search_timeout' } });
+const busy = await failed(fresh().searchMessages('x'));
+ok('a search the cafe could not finish: unavailable, with its word for it', busy.memory === 'unavailable' && /Message search unavailable/.test(busy.message), JSON.stringify(busy));
+answers.set('/api/evidence/search', 'hang');
+const silent = await within(failed(fresh().searchMessages('x')), 600);
+ok('a search never answered ends at the search time limit, as unavailable', silent.settled && silent.value.memory === 'unavailable' && /没有回应/.test(silent.value.message), JSON.stringify(silent));
+answers.set('/api/session', { status: 404, json: { error: 'Not Found' } });
+const old2 = fresh();
+ok('a cafe with no session route: unsupported', (await failed(old2.searchMessages('x'))).memory === 'unsupported');
+answers.set('/api/session', session);
+answers.set('/api/evidence/search', guarded({ results: [], meta: {} }));
+valid = issued + 1;
+const recovered = await within(old2.searchMessages('x'), 600);
+ok('…and a session that could not be had is asked for again the next time', recovered.settled && !recovered.error, JSON.stringify(recovered));
+
 console.log(fail ? `FAILED ${fail}` : 'ALL PASS');
 process.exitCode = fail ? 1 : 0;

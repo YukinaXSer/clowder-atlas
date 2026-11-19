@@ -15,6 +15,7 @@ Recorded in desktop Obsidian with Clowder Atlas 0.0.7. The demo has Chinese narr
 - **Trace a source.** See note properties at the top of the Lens, read incoming and outgoing link excerpts, and jump back to the original text.
 - **Collect and review.** Add excerpts from multiple notes to one tray. Use templates to organize notes, review pending insights before keeping them, or export notes to an Obsidian Canvas.
 - **Discuss or revise a passage.** Connect a running Clowder AI instance to chat about selections, start a seminar, or save replies as pending notes with source links. Compare a revision for a single passage before choosing to replace it.
+- **Bring in what was said elsewhere.** Search your other Clowder AI conversations, or its matter pages, and quote the words you need beside your note passages. A note saved from the discussion keeps where each quote came from, and the Lens checks that the original still reads the same.
 
 The chart, Lens, templates and local review work offline. Chat and passage revision use a separately running [Clowder AI](https://github.com/zts212653/clowder-ai) instance. The interface uses Chinese labels and English command names.
 
@@ -43,6 +44,18 @@ Send a question referring to **#1**, **#2**, etc., or open **研讨会** for com
 
 A revision answering a multi-passage request is **copy-only**. A single-passage request retains the comparison and replacement flow below. Saving a matched reply as a pending note links the source notes of that request, with full vault-relative paths to distinguish identical filenames; it does not combine sources from unrelated requests in the same conversation. If the Cat Cafe does not identify the input message a reply answers, the plugin cannot infer those sources. Failed sends retain every selection for retry or restoration.
 
+## Quoting other conversations and matter pages
+
+Choose **引猫咖记忆** in the chat toolbar or in the Lens, or run **Cite Cat Cafe Memory**. Type what to look for and press Enter: the dialog lists matching messages from your other Cat Cafe conversations and says how the cafe searched (by the letter or by meaning, in full or in part). Nothing is searched until you ask. **事情记忆** lists the cafe's matter pages, the cats' written summaries of things settled, each with its own range of application.
+
+**预览** shows a message in its place, with the paragraph of the hit marked and the two messages after it. Quote the marked paragraph, or select any part of that message and quote the selection. A matter page is quoted as its whole summary. An unrevealed whisper can be read but not quoted. Quotes join the basket after your note passages and are numbered with them; the basket holds up to 90,000 characters in all.
+
+A message with quotes gives each quote's source, coordinate and version, and tells the cats they are snapshots to check, not instructions. Its recipients come from your own words alone: an @ inside a quote summons no one. Before it is sent or resent, each quote is checked against the cafe; a quote whose original has changed, can no longer be read, or comes from another cafe stops the send, with the reason. With exactly one note passage attached, a revision can still replace that passage.
+
+Saving a reply as a pending note records where its request's quotes came from (kind, coordinate, cafe address, version), never the quoted words. The Lens lists them under **猫咖引用** with their present standing and opens the original.
+
+This needs the Cat Cafe on the same computer as Obsidian, in a version that has these routes; the dialog says so when it does not.
+
 ## Passage revision
 
 Select a passage in an **editing view**, attach it with the single menu action, and write your request. With a passage attached, the message contains that passage rather than a note preview. Empty requests ask the cats for their thoughts and an optional revision.
@@ -59,7 +72,9 @@ When you enable the optional connection, it reads the configured Cat Cafe API fo
 
 Sending chat or a seminar sends your message and any attached material to that instance, which may forward it to its configured AI providers. Ordinary note attachment includes up to 1,000 characters in chat or 1,500 in a seminar; passage attachment includes the selected text, up to 90,000 characters. A seminar in a new conversation first creates that conversation in the instance, under the vault's path, with a temporary title from the attached note, passage lines, or topic. AI data retention and billing are controlled by that service and its providers.
 
-Failed messages, attachment text, revision targets, and connection preferences are stored unencrypted in the plugin's local `data.json`. Unresolved failed messages have no automatic count or time expiry. That file may also be included in your own vault backups or sync configuration. See [PRIVACY.md](PRIVACY.md) for details.
+Searching other conversations sends the words you type to the configured instance and shows parts of those conversations in Obsidian; a note keeps the coordinates of what it quotes, not the words.
+
+Failed messages, attachment text, quotes waiting to be sent, revision targets, and connection preferences are stored unencrypted in the plugin's local `data.json`. Unresolved failed messages have no automatic count or time expiry. That file may also be included in your own vault backups or sync configuration. See [PRIVACY.md](PRIVACY.md) for details.
 
 ## Build and test
 

@@ -111,6 +111,201 @@ function passageLines(p) {
   return last === p.from.line ? `第 ${p.from.line + 1} 行` : `第 ${p.from.line + 1}–${last + 1} 行`;
 }
 
+// Chat formatting is a display-only Markdown subset. Never interpret HTML, load images, or change the source
+// message. Code, escaped punctuation and unsupported/unclosed syntax remain readable literal text.
+function chatTableCells(line) {
+  const cells = []; let cell = '', code = 0, pipes = 0;
+  for (let i = 0; i < line.length;) {
+    if (line[i] === '\\' && i + 1 < line.length) { cell += line.slice(i, i + 2); i += 2; continue; }
+    if (line[i] === '`') {
+      const run = /^`+/.exec(line.slice(i))[0];
+      if (!code) code = run.length; else if (code === run.length) code = 0;
+      cell += run; i += run.length; continue;
+    }
+    if (line[i] === '|' && !code) { cells.push(cell.trim()); cell = ''; pipes++; }
+    else cell += line[i];
+    i++;
+  }
+  cells.push(cell.trim());
+  if (!pipes) return null;
+  if (cells[0] === '') cells.shift();
+  if (cells.at(-1) === '') cells.pop();
+  return cells;
+}
+
+function parseChatBlocks(text, depth = 0) {
+  const lines = String(text).replace(/\r\n?/g, '\n').split('\n'), blocks = [];
+  const fence = s => /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(s);
+  const heading = s => /^ {0,3}(#{1,6})[ \t]+(.+?)\s*$/.exec(s);
+  const item = s => /^(\s*)([-+*]|\d+[.)])[ \t]+(.*)$/.exec(s);
+  const rule = s => /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/.test(s);
+  const table = i => {
+    const header = chatTableCells(lines[i] || ''), divider = chatTableCells(lines[i + 1] || '');
+    return header && divider && header.length === divider.length && divider.every(c => /^:?-{3,}:?$/.test(c)) ? { header, divider } : null;
+  };
+  const starts = i => !lines[i]?.trim() || fence(lines[i]) || heading(lines[i]) || item(lines[i]) || rule(lines[i]) || /^ {0,3}>/.test(lines[i]) || table(i);
+  for (let i = 0; i < lines.length;) {
+    if (!lines[i].trim()) { i++; continue; }
+    const start = i, f = fence(lines[i]), h = heading(lines[i]), t = table(i);
+    let b;
+    if (f && (f[1][0] !== '`' || !f[2].includes('`'))) {
+      const marker = f[1], body = []; i++;
+      const closes = s => { const m = /^ {0,3}(`+|~+)[ \t]*$/.exec(s); return m && m[1][0] === marker[0] && m[1].length >= marker.length; };
+      while (i < lines.length && !closes(lines[i])) body.push(lines[i++]);
+      const closed = i < lines.length; if (closed) i++;
+      b = { type: 'code', language: f[2].trim(), text: body.join('\n'), closed };
+    } else if (h) { b = { type: 'heading', level: h[1].length, text: h[2].replace(/[ \t]+#+[ \t]*$/, '') }; i++; }
+    else if (rule(lines[i])) { b = { type: 'rule' }; i++; }
+    else if (t) {
+      i += 2; const rows = [];
+      while (i < lines.length && lines[i].trim()) { const row = chatTableCells(lines[i]); if (!row || row.length !== t.header.length) break; rows.push(row); i++; }
+      b = { type: 'table', header: t.header, rows, align: t.divider.map(c => c.endsWith(':') ? (c.startsWith(':') ? 'center' : 'right') : 'left') };
+    } else if (/^ {0,3}>/.test(lines[i]) && depth < 8) {
+      const body = []; while (i < lines.length && /^ {0,3}>/.test(lines[i])) body.push(lines[i++].replace(/^ {0,3}> ?/, ''));
+      b = { type: 'quote', blocks: parseChatBlocks(body.join('\n'), depth + 1) };
+    } else if (item(lines[i])) {
+      const items = [];
+      while (i < lines.length && lines[i].trim()) {
+        const m = item(lines[i]);
+        if (m) { items.push({ marker: m[2], level: Math.min(2, Math.floor(m[1].replace(/\t/g, '  ').length / 2)), text: m[3] }); i++; }
+        else if (/^\s+\S/.test(lines[i]) && !starts(i)) { items.at(-1).text += '\n' + lines[i++].trim(); }
+        else break;
+      }
+      b = { type: 'list', items };
+    } else {
+      const body = [lines[i++]]; while (i < lines.length && !starts(i)) body.push(lines[i++]);
+      b = { type: 'paragraph', text: body.join('\n') };
+    }
+    b.raw = lines.slice(start, i).join('\n'); blocks.push(b);
+  }
+  return blocks;
+}
+
+function chatVisibleBlocks(blocks, expanded) {
+  if (expanded || blocks.reduce((n, b) => n + b.raw.length, 0) <= 750) return { blocks, hiddenCount: 0 };
+  let end = 0, length = 0;
+  while (end < blocks.length && (length < 600 || blocks[end - 1]?.type === 'heading')) length += blocks[end++].raw.length;
+  return { blocks: blocks.slice(0, end), hiddenCount: blocks.length - end };
+}
+
+function chatElement(parent, tag, cls, text) {
+  const el = parent.ownerDocument.createElement(tag);
+  if (cls) el.className = cls;
+  if (text !== undefined) el.textContent = text;
+  parent.appendChild(el); return el;
+}
+
+function chatCodeEnd(text, start, run) {
+  let end = text.indexOf(run, start + run.length);
+  while (end >= 0 && (text[end - 1] === '`' || text[end + run.length] === '`')) end = text.indexOf(run, end + run.length);
+  return end;
+}
+
+function chatEmphasisEnd(text, start, marker) {
+  let single = false;
+  for (let j = start + marker.length; j < text.length;) {
+    if (text[j] === '\\') { j += 2; continue; }
+    if (text[j] === '`') {
+      const run = /^`+/.exec(text.slice(j))[0], end = chatCodeEnd(text, j, run);
+      j = end < 0 ? j + run.length : end + run.length; continue;
+    }
+    if (text[j] === '*') {
+      const run = /^\*+/.exec(text.slice(j))[0].length;
+      if (marker === '**' && run >= 2) return j + (run === 3 && single ? 1 : 0);
+      if (marker === '*' && run !== 2) return j + run - 1;
+      if (run === 1) single = !single;
+      j += run;
+    } else j++;
+  }
+  return -1;
+}
+
+function renderChatInline(parent, text, depth = 0) {
+  let plain = '';
+  const flush = () => { if (plain) parent.appendChild(parent.ownerDocument.createTextNode(plain)); plain = ''; };
+  for (let i = 0; i < text.length;) {
+    if (text[i] === '\\' && /[\\`*{}\[\]()<>#+.!_|~-]/.test(text[i + 1] || '')) { plain += text[i + 1]; i += 2; continue; }
+    if (text[i] === '`') {
+      const run = /^`+/.exec(text.slice(i))[0], end = chatCodeEnd(text, i, run);
+      if (end >= 0) { flush(); chatElement(parent, 'code', 'atlas-chat-inline-code', text.slice(i + run.length, end)); i = end + run.length; continue; }
+      plain += run; i += run.length; continue;
+    }
+    const cite = /^\[#(\d+)\]/.exec(text.slice(i));
+    if (cite) { flush(); chatElement(parent, 'span', 'atlas-chat-ref-badge', '#' + cite[1]); i += cite[0].length; continue; }
+    const wiki = /^\[\[([^\]\n]+)\]\]/.exec(text.slice(i));
+    if (wiki) { flush(); const parts = wiki[1].split('|'); const el = chatElement(parent, 'span', 'atlas-chat-wikilink', '「' + parts.at(-1) + '」'); el.setAttribute('title', parts[0]); i += wiki[0].length; continue; }
+    if (text[i] === '[' && depth < 8) {
+      const labelEnd = text.indexOf('](', i + 1); let end = labelEnd + 2, balance = 1;
+      if (labelEnd >= 0) {
+        while (end < text.length && balance && !/\s/.test(text[end])) { if (text[end] === '(') balance++; else if (text[end] === ')') balance--; if (balance) end++; }
+        if (!balance) {
+          const href = text.slice(labelEnd + 2, end); let safe = false;
+          try { safe = ['http:', 'https:'].includes(new URL(href).protocol); } catch {}
+          if (safe) {
+            flush(); const a = chatElement(parent, 'a', 'atlas-chat-link'); a.setAttribute('href', href); a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener noreferrer');
+            renderChatInline(a, text.slice(i + 1, labelEnd), depth + 1); i = end + 1; continue;
+          }
+        }
+      }
+    }
+    const strong = text.startsWith('**', i), marker = strong ? '**' : text[i] === '*' ? '*' : null;
+    const betweenWords = /[\p{L}\p{N}]/u.test(text[i - 1] || '') && /[\p{L}\p{N}]/u.test(text[i + 1] || '');
+    if (marker && depth < 8 && (strong || !betweenWords) && !/\s/.test(text[i + marker.length] || ' ')) {
+      const end = chatEmphasisEnd(text, i, marker);
+      if (end > i + marker.length && !/\s/.test(text[end - 1])) {
+        flush(); const el = chatElement(parent, strong ? 'strong' : 'em', strong ? 'atlas-chat-strong' : 'atlas-chat-em');
+        renderChatInline(el, text.slice(i + marker.length, end), depth + 1); i = end + marker.length; continue;
+      }
+    }
+    plain += text[i++];
+  }
+  flush();
+}
+
+function renderChatFormattedContent(parent, blocks, options = {}, depth = 0) {
+  const inline = (el, text) => {
+    const lead = /^\*\*([^*\n]+)\*\*([：:])/.exec(text);
+    if (lead) { chatElement(el, 'strong', 'atlas-chat-lead-key', lead[1]); renderChatInline(el, lead[2] + text.slice(lead[0].length)); }
+    else renderChatInline(el, text);
+  };
+  for (const b of blocks) {
+    if (b.type === 'heading') {
+      const el = chatElement(parent, 'div', 'atlas-chat-heading ' + (b.level <= 3 ? 'atlas-chat-h-section' : 'atlas-chat-h-sub'));
+      el.setAttribute('role', 'heading'); el.setAttribute('aria-level', String(b.level)); inline(el, b.text);
+    }
+    else if (b.type === 'paragraph') inline(chatElement(parent, 'p', 'atlas-chat-paragraph'), b.text);
+    else if (b.type === 'rule') chatElement(parent, 'hr', 'atlas-chat-rule');
+    else if (b.type === 'list') {
+      const list = chatElement(parent, 'div', 'atlas-chat-list'); list.setAttribute('role', 'list');
+      for (const item of b.items) {
+        const li = chatElement(list, 'div', 'atlas-chat-li atlas-chat-level-' + item.level); li.setAttribute('role', 'listitem');
+        chatElement(li, 'span', 'atlas-chat-li-marker' + (/^\d/.test(item.marker) ? ' is-ordered' : ''), /^\d/.test(item.marker) ? item.marker : '');
+        inline(chatElement(li, 'div', 'atlas-chat-li-body'), item.text);
+      }
+    } else if (b.type === 'quote') renderChatFormattedContent(chatElement(parent, 'blockquote', 'atlas-chat-quote'), b.blocks, options, depth + 1);
+    else if (b.type === 'table') {
+      const wrap = chatElement(parent, 'div', 'atlas-chat-table-wrap'); wrap.setAttribute('tabindex', '0'); wrap.setAttribute('role', 'region'); wrap.setAttribute('aria-label', '回复中的表格，可横向滚动');
+      const table = chatElement(wrap, 'table', 'atlas-chat-table');
+      const row = (container, values, tag) => { const tr = chatElement(container, 'tr'); values.forEach((text, i) => { const cell = chatElement(tr, tag); cell.style.textAlign = b.align[i]; if (tag === 'th') cell.setAttribute('scope', 'col'); inline(cell, text); }); };
+      row(chatElement(table, 'thead'), b.header, 'th'); const body = chatElement(table, 'tbody'); for (const values of b.rows) row(body, values, 'td');
+    } else if (b.type === 'code') {
+      if (b.language === '修改稿' && b.closed && depth < 8) {
+        const card = chatElement(parent, 'div', 'atlas-chat-revision-card');
+        chatElement(card, 'div', 'atlas-chat-revision-title', '修改稿预览');
+        const hint = options.activeRevision !== undefined && b.text !== options.activeRevision
+          ? '这一份仅供预览；下方操作使用回复中最后一份完整修改稿'
+          : options.revisionHint || '可用下方按钮复制修改稿';
+        chatElement(card, 'div', 'atlas-chat-revision-hint', hint);
+        renderChatFormattedContent(chatElement(card, 'div', 'atlas-chat-revision-body'), parseChatBlocks(b.text), options, depth + 1);
+      } else {
+        const block = chatElement(parent, 'div', 'atlas-chat-codeblock');
+        if (b.language) chatElement(block, 'div', 'atlas-chat-code-label', b.language);
+        chatElement(chatElement(block, 'pre'), 'code', '', b.text);
+      }
+    }
+  }
+}
+
 /** A fence longer than any run of backticks inside `text`, so the passage (and its revision) can be quoted whole. */
 function passageFence(text) {
   const longest = Math.max(0, ...(String(text).match(/`+/g) || []).map((run) => run.length));
@@ -3488,26 +3683,39 @@ class CafeChatView extends obsidian.ItemView {
     const state = msg.lifecycle?.kind === 'response' ? msg.lifecycle.status : null;
     const writing = state === 'processing';
     const content = msg.content || '';
-    const isLong = content.length > 600;
+    const blocks = parseChatBlocks(content);
+    const folded = chatVisibleBlocks(blocks, false);
+    const isLong = folded.hiddenCount > 0;
     let expanded = isLong && this._expanded.has(msg.id);
     const textEl = bubble.createDiv('atlas-chat-text');
-    if (writing && !content) {
-      textEl.textContent = '正在回复…';
-      textEl.addClass('is-writing');
-    } else {
-      textEl.textContent = isLong && !expanded ? content.substring(0, 600) + '…' : content;
+    if (!isUser) textEl.addClass('is-formatted');
+    const activeRevision = extractRevision(content);
+    let revisionHint = '可用下方按钮复制修改稿';
+    if (writing) revisionHint = '回复完成后可复制或预览修改稿';
+    else if (!isUser && activeRevision !== null) {
+      const { target } = this.plugin.revisionTargetForReply(client?.baseUrl, msg, this._threadId);
+      if (target) revisionHint = target.original === activeRevision ? '笔记里现在就是这一版；可用下方按钮复制修改稿' : '可点击下方「替换原段落」按钮，先对照再应用';
     }
+    const renderContent = () => {
+      textEl.empty();
+      if (writing && !content) { textEl.textContent = '正在回复…'; textEl.addClass('is-writing'); }
+      else if (isUser) textEl.textContent = isLong && !expanded ? folded.blocks.map(b => b.raw).join('\n\n') : content;
+      else renderChatFormattedContent(textEl, expanded ? blocks : folded.blocks, { revisionHint, activeRevision });
+    };
+    renderContent();
 
     if (isLong) {
       const toggleBtn = bubble.createEl('button', {
-        text: expanded ? '收起全文' : `展开全文 (${content.length} 字)`,
-        cls: 'atlas-chat-expand-btn'
+        text: expanded ? '收起全文' : `展开全文（剩余 ${folded.hiddenCount} 块）`,
+        cls: 'atlas-chat-expand-btn',
+        attr: { 'aria-expanded': String(expanded) }
       });
       toggleBtn.addEventListener('click', () => {
         expanded = !expanded;
         if (expanded) this._expanded.add(msg.id); else this._expanded.delete(msg.id);
-        textEl.textContent = expanded ? content : content.substring(0, 600) + '…';
-        toggleBtn.textContent = expanded ? '收起全文' : `展开全文 (${content.length} 字)`;
+        renderContent();
+        toggleBtn.textContent = expanded ? '收起全文' : `展开全文（剩余 ${folded.hiddenCount} 块）`;
+        toggleBtn.setAttribute('aria-expanded', String(expanded));
       });
     }
 

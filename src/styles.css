@@ -2506,3 +2506,53 @@ body.theme-light .atlas-lens-snippet { background: rgba(0, 0, 0, 0.03); }
 .atlas-memory-after-title { margin: 12px 0 4px; font-size: 11.5px; font-weight: 600; color: var(--atlas-text-sub); }
 .atlas-memory-after { margin-top: 6px; padding: 5px 10px; border-left: 2px solid var(--atlas-border-card); }
 .atlas-memory-after-text { margin: 2px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--atlas-text-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Reply typography: native neutral surfaces with a copper guide for headings and source references. */
+.atlas-cafe-chat { --atlas-bg-subhead: color-mix(in srgb, var(--atlas-accent-primary) 8%, transparent); }
+.atlas-cafe-chat .atlas-chat-bubble.is-cat { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; padding: 10px 12px; line-height: 1.65; }
+.atlas-cafe-chat .atlas-chat-bubble.is-user { max-width: 86%; }
+.atlas-cafe-chat .atlas-chat-text.is-formatted { white-space: normal; overflow-wrap: anywhere; min-width: 0; }
+.atlas-chat-text.is-formatted > :first-child,
+.atlas-chat-revision-body > :first-child { margin-top: 2px; }
+.atlas-chat-text.is-formatted > :last-child,
+.atlas-chat-revision-body > :last-child { margin-bottom: 0; }
+.atlas-chat-paragraph { margin: 7px 0; white-space: pre-wrap; }
+.atlas-chat-heading { color: var(--atlas-text-title); font-weight: 700; line-height: 1.55; overflow-wrap: anywhere; }
+.atlas-chat-h-section { font-size: 14px; margin: 16px 0 7px; padding-bottom: 5px; border-bottom: 1px solid var(--atlas-border-card); }
+.atlas-chat-h-sub { font-size: 13px; margin: 12px 0 7px; padding: 5px 8px; border-left: 3px solid var(--atlas-accent-primary); border-radius: 0 6px 6px 0; background: var(--atlas-bg-subhead); }
+.atlas-chat-list { margin: 7px 0; }
+.atlas-chat-li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; column-gap: 7px; margin: 5px 0; }
+.atlas-chat-li.atlas-chat-level-1 { margin-left: 14px; }
+.atlas-chat-li.atlas-chat-level-2 { margin-left: 28px; }
+.atlas-chat-li-marker { display: block; width: 5px; height: 5px; margin: 0 2px 2px; border-radius: 50%; background: var(--atlas-accent-primary); }
+.atlas-chat-li-marker.is-ordered { width: auto; height: auto; margin: 0; border-radius: 0; background: none; color: var(--atlas-text-sub); font-size: 12px; font-variant-numeric: tabular-nums; }
+.atlas-chat-li-body { min-width: 0; white-space: pre-wrap; }
+.atlas-chat-lead-key { color: var(--atlas-text-title); font-weight: 700; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--atlas-accent-primary) 50%, transparent); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+.atlas-chat-strong { color: var(--atlas-text-title); font-weight: 700; }
+.atlas-chat-em { font-style: italic; }
+.atlas-chat-inline-code { padding: 1px 4px; border: 1px solid var(--atlas-border-card); border-radius: 4px; background: var(--atlas-bg-subtle); color: var(--atlas-text-title); font-family: var(--font-monospace); font-size: .92em; box-decoration-break: clone; }
+.atlas-chat-ref-badge { display: inline; padding: 1px 5px; border: 1px solid color-mix(in srgb, var(--atlas-accent-primary) 30%, transparent); border-radius: 999px; background: var(--atlas-bg-subhead); color: var(--atlas-accent-primary); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.atlas-chat-wikilink { color: var(--atlas-accent-primary); text-decoration: underline dashed; text-underline-offset: 3px; }
+.atlas-chat-link { color: var(--atlas-accent-primary); text-underline-offset: 3px; }
+.atlas-chat-quote { margin: 9px 0; padding: 5px 9px; border-left: 2px solid var(--atlas-accent-primary); border-radius: 0 5px 5px 0; background: var(--atlas-bg-subtle); color: var(--atlas-text-body); }
+.atlas-chat-quote > :first-child { margin-top: 0; }
+.atlas-chat-quote > :last-child { margin-bottom: 0; }
+.atlas-chat-rule { margin: 14px 0; border: 0; border-top: 1px solid var(--atlas-border-card); }
+.atlas-chat-table-wrap { max-width: 100%; overflow-x: auto; margin: 10px 0; border: 1px solid var(--atlas-border-card); border-radius: 6px; }
+.atlas-chat-table { width: max-content; min-width: 100%; margin: 0; border-collapse: collapse; font-size: 12px; line-height: 1.55; }
+.atlas-chat-table th, .atlas-chat-table td { min-width: 70px; max-width: 220px; padding: 6px 8px; border: 0; border-bottom: 1px solid var(--atlas-border-card); white-space: normal; overflow-wrap: anywhere; }
+.atlas-chat-table th { background: var(--atlas-bg-pill); color: var(--atlas-text-title); font-weight: 700; }
+.atlas-chat-table tbody tr:nth-child(even) { background: var(--atlas-bg-subtle); }
+.atlas-chat-table tbody tr:last-child td { border-bottom: 0; }
+.atlas-chat-codeblock { min-width: 0; margin: 9px 0; border: 1px solid var(--atlas-border-card); border-radius: 6px; background: var(--atlas-bg-subtle); overflow: hidden; }
+.atlas-chat-code-label { padding: 4px 8px; border-bottom: 1px solid var(--atlas-border-card); color: var(--atlas-text-sub); font-size: 11px; }
+.atlas-chat-codeblock pre { margin: 0; padding: 8px; overflow-x: auto; border: 0; border-radius: 0; background: transparent; white-space: pre; word-break: normal; overflow-wrap: normal; font-size: 12px; line-height: 1.6; }
+.atlas-chat-codeblock pre code { padding: 0; border: 0; background: transparent; font: inherit; font-family: var(--font-monospace); color: var(--atlas-text-body); }
+.atlas-chat-revision-card { margin: 12px 0; border: 1px solid color-mix(in srgb, var(--atlas-accent-primary) 40%, transparent); border-radius: 7px; overflow: hidden; }
+.atlas-chat-revision-title { padding: 6px 9px 2px; background: var(--atlas-bg-subhead); color: var(--atlas-text-title); font-size: 12px; font-weight: 700; }
+.atlas-chat-revision-hint { padding: 0 9px 6px; background: var(--atlas-bg-subhead); color: var(--atlas-text-sub); font-size: 11px; line-height: 1.5; }
+.atlas-chat-revision-body { padding: 7px 9px; }
+.atlas-cafe-chat button.atlas-chat-expand-btn { padding: 3px 9px; margin-top: 8px; border-radius: 999px; border-style: solid; color: var(--atlas-accent-primary); background: var(--atlas-bg-subhead); font-size: 11px; }
+.atlas-cafe-chat button.atlas-chat-expand-btn:focus-visible,
+.atlas-chat-table-wrap:focus-visible,
+.atlas-chat-link:focus-visible { outline: 2px solid var(--atlas-accent-primary); outline-offset: 2px; }

@@ -606,6 +606,7 @@ class CatCafeClient {
     this._reading = null;  // the read in flight (see connect)
     this._queued = null;   // the one read waiting behind it
     this._session = null;  // the cafe's session for reading other conversations and matters (see _memorySession)
+    this._pendingReplies = new Map();  // accepted sends, until the execution/queue read catches up; never stored as history
     this.destroyed = false;
   }
 
@@ -625,10 +626,11 @@ class CatCafeClient {
     }
     const resp = await this._inTime(obsidian.requestUrl(reqOpts), options.timeoutMs ?? this.timeouts[method === 'GET' ? 'read' : 'send']);
     if (resp.status >= 400) {
-      let reason = '';
-      try { reason = typeof resp.json?.error === 'string' ? resp.json.error : ''; } catch {}
+      let reason = '', code = null;
+      try { const data = resp.json; reason = typeof data?.error === 'string' ? data.error : ''; code = data?.code || null; } catch {}
       const error = new Error(reason ? `${reason}（HTTP ${resp.status}）` : `HTTP ${resp.status}`);
       error.status = resp.status;
+      error.code = code;
       error.reason = reason;  // the cafe's own word for it: tells "no such route" from "no such message" (see _memoryRead)
       throw error;
     }
@@ -787,6 +789,13 @@ class CatCafeClient {
     if (to) body.mentions = to;
     try {
       const resp = await this._fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const cats = [...new Set((resp.entries || []).map(e => e.targetCatId).filter(Boolean))];
+      if (cats.length && !this.destroyed) {
+        const id = threadId || 'default';
+        const previous = this._pendingReplies.get(id);
+        this._pendingReplies.set(id, { cats: [...new Set([...this.pendingReplyCats(id), ...cats])],
+          requests: [...(previous?.requests || []), { cats, userMessageId: resp.userMessageId }] });
+      }
       return { resp, recipients: to };
     } catch (err) {
       err.recipients = to;  // already settled: a resend goes to the same cats
@@ -820,9 +829,10 @@ class CatCafeClient {
    * 'local' (the cafe gives these only to a request made directly from its own computer), 'unsupported' (this cafe
    * has no such route), 'gone' (this message or page cannot be read any more) or 'unavailable' (no answer for now).
    */
-  async _memoryRead(path, timeoutMs = this.timeouts.read) {
+  async _sessionRequest(path, options = {}) {
     const fail = (err, memory) => { err.memory = memory; return err; };
     for (let renewed = false; ; renewed = true) {
+      this._stillInUse();
       let session;
       try {
         session = await this._memorySession(renewed);
@@ -830,8 +840,9 @@ class CatCafeClient {
         throw fail(err, err.status === 404 ? 'unsupported' : 'unavailable');
       }
       if (session.userId === 'unpaired-user') throw fail(new Error('猫咖没有把这次连接当作本机'), 'local');
+      this._stillInUse();
       try {
-        return await this._fetch(path, { headers: session.cookie ? { Cookie: session.cookie } : {}, timeoutMs });
+        return await this._fetch(path, { ...options, headers: { ...(options.headers || {}), ...(session.cookie ? { Cookie: session.cookie } : {}) } });
       } catch (err) {
         if (err.status === 401 && !renewed) continue;
         throw fail(err, err.status === 401 ? 'local'
@@ -840,6 +851,103 @@ class CatCafeClient {
           : 'unavailable');
       }
     }
+  }
+
+  _memoryRead(path, timeoutMs = this.timeouts.read) {
+    return this._sessionRequest(path, { timeoutMs });
+  }
+
+  pendingReplyCats(threadId) { return this._pendingReplies.get(threadId)?.cats || []; }
+
+  /** A matching response owns its own running/terminal state now; an older answer must not settle a newer send. */
+  observeReplyMessages(threadId, messages) {
+    const pending = this._pendingReplies.get(threadId);
+    if (!pending) return;
+    const requests = pending.requests.map(request => ({ ...request, cats: request.cats.filter(catId =>
+      !messages.some(m => (m.catId || m.from?.catId) === catId && m.lifecycle?.kind === 'response'
+        && request.userMessageId && m.lifecycle.inputMessageIds?.includes(request.userMessageId))) })).filter(r => r.cats.length);
+    const cats = [...new Set(requests.flatMap(r => r.cats))];
+    if (!cats.length) this._pendingReplies.delete(threadId);
+    else if (requests.length !== pending.requests.length || requests.some((r, i) => r.cats.length !== pending.requests[i]?.cats.length)) this._pendingReplies.set(threadId, { cats, requests });
+  }
+
+  /** Only an absent route means an older Cafe. Missing threads and refused access must still be reported. */
+  _missingRoute(err) { return err.status === 404 && (!err.code && /^(Not Found|Route .*not found)$/i.test(err.reason || '')); }
+
+  async _threadExecutions(threadId) {
+    try {
+      const data = await this._sessionRequest(`/api/threads/${encodeURIComponent(threadId)}/executions/active`);
+      if (!Array.isArray(data?.executions)) throw new Error('猫咖没有返回有效的执行状态，请刷新后再试');
+      // This endpoint returns the whole PROJECT. Neither its other threads nor another principal are stop capabilities.
+      return data.executions.filter(e => e.threadId === threadId);
+    } catch (err) { if (this._missingRoute(err)) return null; throw err; }
+  }
+
+  async readReplyActivity(threadId) {
+    const pending = this._pendingReplies.get(threadId);
+    const executions = await this._threadExecutions(threadId);
+    let queue = null;
+    try { queue = await this._sessionRequest(`/api/threads/${encodeURIComponent(threadId)}/queue`); }
+    catch (err) { if (!this._missingRoute(err)) throw err; }
+    if (Array.isArray(queue?.queue) && Array.isArray(queue?.activeInvocations)
+      && !executions?.length && !queue.queue.length && !queue.activeInvocations.length
+      && this._pendingReplies.get(threadId) === pending) this._pendingReplies.delete(threadId);
+    return { executions: executions || [], queue: queue?.queue || [], activeInvocations: queue?.activeInvocations || [] };
+  }
+
+  async _cancelProjected(execution, threadId) {
+    const target = execution.cancelability?.state === 'cancelable' && execution.cancelability.target;
+    if (!target) throw new Error('当前回复暂时无法安全停止，请刷新后重试');
+    let path, options;
+    if (execution.kind === 'live_invocation' && target.kind === 'live_invocation' && target.threadId === threadId && target.catId === execution.catId && target.executionId) {
+      path = `/api/threads/${encodeURIComponent(threadId)}/executions/live/${encodeURIComponent(target.executionId)}/cancel`;
+      options = { method: 'POST', body: JSON.stringify({ catId: target.catId, ...(execution.turnInvocationId ? { expectedInvocationId: execution.turnInvocationId } : {}) }) };
+    } else if (execution.kind === 'managed_command' && target.kind === 'managed_command' && target.taskId) {
+      path = `/api/callbacks/hold-ball/${encodeURIComponent(target.taskId)}`;
+      options = { method: 'DELETE' };
+    } else throw new Error('猫咖返回的停止目标与当前对话不一致');
+    try { return await this._sessionRequest(path, options); }
+    catch (err) { if (err.status === 409 || (target.kind === 'managed_command' && err.status === 404)) return; throw err; }
+  }
+
+  async _cancelCat(threadId, catId) {
+    try { return await this._sessionRequest(`/api/threads/${encodeURIComponent(threadId)}/cancel/${encodeURIComponent(catId)}`, { method: 'POST' }); }
+    catch (err) { if (err.status === 404 && err.code === 'CAT_NOT_ACTIVE') return; throw err; }
+  }
+
+  async stopCatReply(threadId, catId) {
+    const pending = this._pendingReplies.get(threadId);
+    const executions = await this._threadExecutions(threadId);
+    const matches = (executions || []).filter(e => e.kind === 'live_invocation' && e.catId === catId);
+    if (matches.length) {
+      for (const e of matches) await this._cancelProjected(e, threadId);
+    } else await this._cancelCat(threadId, catId);  // tracker's pre-start window, or a Cafe predating execution projection
+    if (pending && this._pendingReplies.get(threadId) === pending) {
+      const cats = pending.cats.filter(id => id !== catId);
+      if (cats.length) this._pendingReplies.set(threadId, { cats, requests: pending.requests.map(r => ({ ...r, cats: r.cats.filter(id => id !== catId) })).filter(r => r.cats.length) });
+      else this._pendingReplies.delete(threadId);
+    }
+  }
+
+  async stopThreadReplies(threadId, hintCatIds = []) {
+    this._stillInUse();
+    const pending = this._pendingReplies.get(threadId);
+    const hints = [...new Set([...hintCatIds, ...this.pendingReplyCats(threadId)])];
+    const errors = [];
+    // Clearing first prevents a queued reply from taking the slot released by a live cancellation.
+    try { await this._sessionRequest(`/api/threads/${encodeURIComponent(threadId)}/queue`, { method: 'DELETE' }); }
+    catch (err) { errors.push(err); }
+    const executions = await this._threadExecutions(threadId);
+    const covered = new Set();
+    for (const e of executions || []) {
+      covered.add(e.catId);  // stopping a managed job is not permission to cancel its owner's separate live reply
+      try { await this._cancelProjected(e, threadId); } catch (err) { errors.push(err); }
+    }
+    for (const catId of hints.filter(id => id && !covered.has(id))) {
+      try { await this._cancelCat(threadId, catId); } catch (err) { errors.push(err); }
+    }
+    if (errors.length) throw new Error(`停止未全部完成：${errors.map(e => e.message).join('；')}`);
+    if (this._pendingReplies.get(threadId) === pending) this._pendingReplies.delete(threadId);
   }
 
   /** Messages in the user's cafe conversations that match `query`: the cafe's own answer, which says how it searched. */
@@ -953,6 +1061,7 @@ class CatCafeClient {
     this.cats = [];
     this.threads = [];
     this._session = null;
+    this._pendingReplies.clear();
   }
 }
 
@@ -2777,6 +2886,8 @@ class CafeChatView extends obsidian.ItemView {
     this._pollRun = null;         // the one chain of message reads (see _startPolling)
     this._attachNote = false;
     this._pendingContext = null;
+    this._activity = null;
+    this._stopRequests = new Set();  // operations keep their original client/thread, even after navigating away
     this._resetRefs();
   }
 
@@ -2799,6 +2910,9 @@ class CafeChatView extends obsidian.ItemView {
     this._offlineManualBtn = null;
     this._passageRow = null;
     this._sendBtn = null;
+    this._runBar = null;
+    this._runStatus = null;
+    this._runStopBtn = null;
   }
 
   getViewType() { return VIEW_TYPE_CAFE_CHAT; }
@@ -2834,6 +2948,10 @@ class CafeChatView extends obsidian.ItemView {
     }
 
     const client = this.plugin.cafeClient;
+    if (this._messagesClient && this._messagesClient !== client) {
+      this._messages = [];
+      this._activity = null;
+    }
     if (!this._threadId && client.threads.length > 0) {
       this._threadId = client.threads[0].id;
     }
@@ -2863,6 +2981,8 @@ class CafeChatView extends obsidian.ItemView {
 
   onClose() {
     this._stopPolling();
+    this._messageRead = null;
+    this._activityRead = null;
   }
 
   /**
@@ -2977,6 +3097,7 @@ class CafeChatView extends obsidian.ItemView {
    * sent, each with its remove button; the draft's prompt asks what to do with them.
    */
   _renderPassage() {
+    this._syncComposerActionState();
     const row = this._passageRow;
     if (!row) return;  // offline layout
     const list = this.plugin.chatPassages, cited = this.plugin.chatCitations;
@@ -3138,6 +3259,7 @@ class CafeChatView extends obsidian.ItemView {
       this._input.value = `${mention} ${this._input.value}`.trim() + ' ';
     }
     this._input.focus();
+    this._syncComposerActionState();
   }
 
   /** Right-click on a cat: ask it, with the note being read attached when there is one. */
@@ -3181,6 +3303,12 @@ class CafeChatView extends obsidian.ItemView {
 
     // ── Input area: one-row toolbar (attach toggle · scrollable @ list), then draft + send ──
     const inputArea = container.createDiv('atlas-chat-input-area');
+    this._runBar = inputArea.createDiv({ cls: 'atlas-chat-run-bar', attr: { hidden: '' } });
+    const runStatus = this._runBar.createDiv({ cls: 'atlas-chat-run-status', attr: { role: 'status', 'aria-live': 'polite' } });
+    runStatus.createSpan({ cls: 'atlas-chat-run-dot', attr: { 'aria-hidden': 'true' } });
+    this._runStatus = runStatus.createSpan();
+    this._runStopBtn = this._runBar.createEl('button', { cls: 'atlas-chat-run-stop-btn', attr: { title: '停止当前对话全部正在进行的回复与排队' } });
+    this._runStopBtn.addEventListener('click', () => this._stopThreadReplies());
     // The passage attached to the next message (editor: 和猫猫讨论 / 请猫猫修改选中段落); hidden when there is none
     this._passageRow = inputArea.createDiv({ cls: 'atlas-chat-passage', attr: { hidden: '' } });
     const inputTools = this._inputTools = inputArea.createDiv('atlas-chat-input-tools');
@@ -3204,17 +3332,26 @@ class CafeChatView extends obsidian.ItemView {
       attr: { placeholder: CHAT_PLACEHOLDER, rows: '2', 'aria-label': '消息草稿' }
     });
     this._input.addEventListener('keydown', (e) => {
+      if (e.isComposing) return;
+      if (e.key === 'Escape' && !this._hasDraft() && this._isThreadActive()) {
+        e.preventDefault();
+        this._stopThreadReplies();
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         this._sendMessage();
       }
     });
+    this._input.addEventListener('input', () => this._syncComposerActionState());
 
     const sendBtn = this._sendBtn = inputRow.createEl('button', {
       text: '发送',
       cls: 'atlas-chat-send-btn'
     });
-    sendBtn.addEventListener('click', () => this._sendMessage());
+    sendBtn.addEventListener('click', () => {
+      if (this._isThreadActive() && !this._hasDraft() && !this._sending) this._stopThreadReplies();
+      else this._sendMessage();
+    });
 
     this._renderCompanions();  // fills the strip and the @ list, then the note-dependent parts
     this._renderPassage();
@@ -3380,7 +3517,7 @@ class CafeChatView extends obsidian.ItemView {
   }
 
   async _sendMessage() {
-    if (this._sending) return;
+    if (this._sending || this._stopping()) return;
     const content = this._input.value.trim();
     const passages = this.plugin.chatPassages;
     const passage = passages.length ? passages : null;
@@ -3392,6 +3529,7 @@ class CafeChatView extends obsidian.ItemView {
     const cafe = client.baseUrl;
     const threadId = this._threadId ?? null;
     this._sending = true;
+    this._syncComposerActionState();
     try {
       if (citations.length) {
         // What is quoted from the cafe is checked there before it goes anywhere: still readable, still as it read
@@ -3462,6 +3600,7 @@ class CafeChatView extends obsidian.ItemView {
         // the connection changed while the note was being read: never send to whatever is connected now
         if (this.plugin.cafeClient !== client) throw new Error('发送前猫咖连接已切换');
         const { resp } = await client.postMessage({ threadId, content: fullContent, key, ...(quotes ? { words } : {}), quotesCafe: citations.length > 0 });
+        this._syncComposerActionState();
         console.log('Clowder Atlas: Message sent, queued to', resp.entries?.map(e => e.targetCatId).join(', '));
         if (revisionId) await this.plugin.bindRevisionMessage(revisionId, resp?.userMessageId);
         if (passage) await this.plugin.consumeChatPassages(passages);
@@ -3481,17 +3620,20 @@ class CafeChatView extends obsidian.ItemView {
       }
     } finally {
       this._sending = false;
+      this._syncComposerActionState();
     }
   }
 
   /** While quotes are being checked before a send, the draft and 发送 wait: nothing typed meanwhile can be lost to it. */
   _setChecking(on) {
+    this._checking = on;
     if (this._input) this._input.disabled = on;
     if (this._sendBtn) {
       this._sendBtn.disabled = on;
       this._sendBtn.setText(on ? '核对引用…' : '发送');
     }
     if (!on) this._input?.focus();
+    this._syncComposerActionState();
   }
 
   /**
@@ -3563,6 +3705,7 @@ class CafeChatView extends obsidian.ItemView {
     }
     this._input.focus();
     this._input.setSelectionRange(this._input.value.length, this._input.value.length);
+    this._syncComposerActionState();
     await this.plugin.dropFailedSend(record.id);
   }
 
@@ -3620,19 +3763,24 @@ class CafeChatView extends obsidian.ItemView {
       }
       return;
     }
+    const read = this._messageRead = {};
     try {
       const data = await client._fetch(
         `/api/messages?threadId=${encodeURIComponent(threadId)}&limit=30&order=asc`
       );
-      if (!this._isCurrent(threadId, client)) return;  // switched, cleared or disconnected meanwhile
+      if (!this._isCurrent(threadId, client) || this._messageRead !== read) return;  // switched, closed, or a newer read started
       this._messages = (data && data.messages) || [];
+      this._messagesClient = client;
       this._renderMessages();
+      await this._readActivity(threadId, client);
     } catch (err) {
       console.warn('Clowder Atlas: Failed to load messages:', err.message);
     }
   }
 
   _renderMessages() {
+    this.plugin.cafeClient?.observeReplyMessages(this._threadId || 'default', this._messages);
+    this._syncComposerActionState();
     if (!this._messageArea) return;
     this._messagesKey = messagesKey(this._messages);
     const keep = this._autoScroll ? null : this._messageArea.scrollTop;  // read further up: stay there
@@ -3730,9 +3878,18 @@ class CafeChatView extends obsidian.ItemView {
     if (msg._pending) {
       footerRow.createEl('span', { text: '发送中…', cls: 'atlas-chat-pending' });
     }
-    if (writing) footerRow.createEl('span', { text: '回复中…', cls: 'atlas-chat-pending' });
+    if (writing) {
+      footerRow.createEl('span', { text: '回复中…', cls: 'atlas-chat-pending' });
+      const catId = msg.catId || msg.from?.catId;
+      if (!isUser && catId) {
+        const threadId = this._threadId;
+        const stop = footerRow.createEl('button', { cls: 'atlas-chat-stop-pill', attr: { 'aria-label': '停止这只伙伴的回复' } });
+        this._paintStopButton(stop, this._stopping(catId));
+        stop.addEventListener('click', () => this._stopCatReply(catId, threadId, client));
+      }
+    }
     const ended = { failed: '回复失败', canceled: '回复已取消', interrupted: '回复中断' }[state];
-    if (ended) footerRow.createEl('span', { text: ended, cls: 'atlas-chat-pending' });
+    if (ended) footerRow.createEl('span', { text: ended, cls: 'atlas-chat-pending is-ended' });
     if (msg._failed) this._renderFailedParts(bubble, footerRow, msg._failed);
 
     // Bring cat insights back into Obsidian: save as a pending note (crystallized after review) or append — once the
@@ -3815,7 +3972,7 @@ class CafeChatView extends obsidian.ItemView {
     const next = async () => {
       await this._pollNewMessages();
       if (this._pollRun !== run) return;
-      this._pollTimer = setTimeout(next, this._replying() ? 1500 : 5000);
+      this._pollTimer = setTimeout(next, this._isThreadActive() ? 1500 : 5000);
     };
     this._pollTimer = setTimeout(next, firstIn);
   }
@@ -3827,8 +3984,8 @@ class CafeChatView extends obsidian.ItemView {
   }
 
   /** A message was just sent (or the conversation changed): read again shortly, if reading is on. */
-  _pollSoon() {
-    if (this._pollRun) this._startPolling(1500);
+  _pollSoon(delay = 1500) {
+    if (this._pollRun) this._startPolling(delay);
   }
 
   /** A cat's reply is being written in the conversation on screen. */
@@ -3836,19 +3993,108 @@ class CafeChatView extends obsidian.ItemView {
     return this._messages.some((m) => m.lifecycle?.kind === 'response' && m.lifecycle.status === 'processing');
   }
 
+  _hasDraft() {
+    return Boolean(this._input?.value.trim()) || this.plugin.chatPassages.length > 0 || this.plugin.chatCitations.length > 0;
+  }
+
+  _replyCats() {
+    const client = this.plugin.cafeClient;
+    if (!this.plugin.isCafeConnected || !client) return [];
+    const ids = new Set(client.pendingReplyCats(this._threadId || 'default'));
+    for (const m of this._messages) if (m.lifecycle?.kind === 'response' && m.lifecycle.status === 'processing') ids.add(m.catId || m.from?.catId);
+    if (this._activity?.threadId === this._threadId && this._activity.client === client) {
+      for (const e of [...this._activity.executions, ...this._activity.activeInvocations]) ids.add(e.catId);
+      for (const e of this._activity.queue) for (const id of e.targetCats || [e.targetCatId]) ids.add(id);
+    }
+    return [...ids].filter(Boolean);
+  }
+
+  _isThreadActive() { return this._replyCats().length > 0; }
+
+  _stopping(catId = null) {
+    return [...this._stopRequests].some(op => op.client === this.plugin.cafeClient && op.threadId === (this._threadId || 'default')
+      && (!catId || !op.catId || op.catId === catId));
+  }
+
+  _paintStopButton(button, pending = false) {
+    button.empty();
+    button.createSpan({ cls: 'atlas-chat-stop-square', attr: { 'aria-hidden': 'true' } });
+    button.createSpan({ text: pending ? '停止中…' : '停止' });
+    button.disabled = pending;
+  }
+
+  _syncComposerActionState() {
+    if (!this._sendBtn) return;
+    const ids = this._replyCats(), active = ids.length > 0;
+    const stopping = this._stopping();
+    const stopMode = active && !this._hasDraft() && !this._sending;
+    this._sendBtn.toggleClass('is-stop', stopMode);
+    this._sendBtn.setAttribute('aria-label', stopMode ? '停止当前对话的回复' : '发送消息');
+    if (stopMode) this._paintStopButton(this._sendBtn, stopping);
+    else { this._sendBtn.setText(this._checking ? '核对引用…' : this._sending ? '发送中…' : '发送'); this._sendBtn.disabled = Boolean(this._sending || this._checking || stopping); }
+    if (this._runBar) {
+      this._runBar.hidden = !active;
+      const names = ids.slice(0, 2).map(id => this.plugin.cafeClient.cats.find(c => c.id === id)?.nickname || id);
+      this._runStatus.setText(stopping ? '正在停止当前回复…' : !this._replying() ? '已发送，等待伙伴回复…'
+        : `${names.join('、')}${ids.length > 2 ? ` 等 ${ids.length} 只伙伴` : ''} 正在回复…`);
+      this._paintStopButton(this._runStopBtn, stopping);
+    }
+  }
+
+  async _readActivity(threadId, client) {
+    const run = this._activityRead = {};
+    try {
+      const activity = await client.readReplyActivity(threadId);
+      if (!this._isCurrent(threadId, client) || this._activityRead !== run) return;
+      this._activity = { ...activity, threadId, client };
+      this._syncComposerActionState();
+    } catch { /* Message reads remain usable when this Cafe cannot project running work. Stop reports its own failure. */ }
+  }
+
+  async _stopCatReply(catId, threadId, client) {
+    if (!this._isCurrent(threadId, client) || this._stopping(catId)) return;
+    const op = { catId, threadId: threadId || 'default', client };
+    this._stopRequests.add(op);
+    this._renderMessages();
+    try { await client.stopCatReply(op.threadId, catId); }
+    catch (err) { new obsidian.Notice(`停止失败：${err.message}。可以重试`); }
+    finally {
+      this._stopRequests.delete(op);
+      if (this._isCurrent(threadId, client)) { await this._loadMessages(); this._renderMessages(); this._pollSoon(300); }
+    }
+  }
+
+  async _stopThreadReplies() {
+    const threadId = this._threadId, client = this.plugin.cafeClient;
+    if (!client || !this._isThreadActive() || this._stopping()) return;
+    const op = { threadId: threadId || 'default', client };
+    const cats = this._replyCats();
+    this._stopRequests.add(op);
+    this._renderMessages();
+    try { await client.stopThreadReplies(op.threadId, cats); }
+    catch (err) { new obsidian.Notice(`${err.message}。请重试停止`); }
+    finally {
+      this._stopRequests.delete(op);
+      if (this._isCurrent(threadId, client)) { await this._loadMessages(); this._renderMessages(); this._pollSoon(300); }
+    }
+  }
+
   async _pollNewMessages() {
     const threadId = this._threadId, client = this.plugin.cafeClient;
     if (!threadId || !this.plugin.isCafeConnected) return;
+    const read = this._messageRead = {};
     try {
       const data = await client._fetch(
         `/api/messages?threadId=${encodeURIComponent(threadId)}&limit=30&order=asc`
       );
-      if (!this._isCurrent(threadId, client)) return;
+      if (!this._isCurrent(threadId, client) || this._messageRead !== read) return;
       const newMessages = (data && data.messages) || [];
       if (messagesKey(newMessages) !== this._messagesKey) {  // new messages, or a reply's words or state changed
         this._messages = newMessages;
+        this._messagesClient = client;
         this._renderMessages();
       }
+      await this._readActivity(threadId, client);
     } catch (err) {
       // Silent fail on poll
     }

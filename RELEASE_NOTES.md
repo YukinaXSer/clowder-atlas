@@ -1,3 +1,17 @@
+# 0.0.9 — readable companion replies
+
+- Companion replies now show headings, bold and italic emphasis, hanging lists with highlighted lead labels, inline code, citation badges and wiki-link aliases.
+- Quotes, tables and code blocks have separate layouts. Wide tables and code scroll within the reply card. Revision blocks appear as preview cards whose hints match the available copy or replace action.
+- Cat replies use the full pane width in light and dark themes. User prompts retain their compact layout and literal text.
+- Long replies fold between complete content blocks instead of cutting at character 600. A single long block stays whole. Keyboard expansion, refreshes and growing replies preserve the expanded state and reading position.
+- Formatting affects display only. Copying a revision, saving a pending note, excerpting a reply and replacing a passage retain the original Markdown and request association.
+
+The renderer supports a Markdown subset using DOM text nodes. It does not interpret HTML or load images; explicit HTTP/HTTPS links can be opened, while wiki-link aliases are display markers.
+
+Validated in isolated desktop Obsidian, including 320px/440px light and dark views. Existing settings and notes require no migration.
+
+Install the three individual assets from this release: `main.js`, `manifest.json`, and `styles.css`. Reload Clowder Atlas or reopen Obsidian after updating. If you already installed the approved local 0.0.9 trial, its three plugin files are identical to this release.
+
 # 0.0.8 — quote other Cat Cafe conversations and matter pages beside a note
 
 - **引猫咖记忆** (in the chat toolbar, in the Lens, or the command **Cite Cat Cafe Memory**) opens a dialog that searches what was said in your other Cat Cafe conversations, or lists the cafe's matter pages (the cats' written summaries of things settled). Nothing is searched until you ask: opened from the Lens, the note's title or your selection only waits in the search box.

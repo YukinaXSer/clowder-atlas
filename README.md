@@ -44,9 +44,9 @@ Send a question referring to **#1**, **#2**, etc., or open **研讨会** for com
 
 A revision answering a multi-passage request is **copy-only**. A single-passage request retains the comparison and replacement flow below. Saving a matched reply as a pending note links the source notes of that request, with full vault-relative paths to distinguish identical filenames; it does not combine sources from unrelated requests in the same conversation. If the Cat Cafe does not identify the input message a reply answers, the plugin cannot infer those sources. Failed sends retain every selection for retry or restoration.
 
-## Reply formatting (local trial)
+## Reply formatting
 
-On this local trial branch, cat replies display headings, emphasis, hanging lists, citation badges, tables and revision previews. Long replies fold only between complete blocks; a single long block stays whole. **展开全文** and **收起全文** preserve the reading state as replies refresh. Formatting changes the display only: saved notes, excerpts and copied revisions retain their original Markdown. HTML and images remain text, and only explicit HTTP/HTTPS links are clickable. This is a Markdown subset, not the full Obsidian note renderer.
+Cat replies display headings, emphasis, hanging lists, citation badges, tables and revision previews. Long replies fold only between complete blocks; a single long block stays whole. **展开全文** and **收起全文** preserve the reading state as replies refresh. Formatting changes the display only: saved notes, excerpts and copied revisions retain their original Markdown. HTML and images remain text, and only explicit HTTP/HTTPS links are clickable. This is a Markdown subset, not the full Obsidian note renderer.
 
 ## Quoting other conversations and matter pages
 

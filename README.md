@@ -48,6 +48,10 @@ A revision answering a multi-passage request is **copy-only**. A single-passage 
 
 Cat replies display headings, emphasis, hanging lists, citation badges, tables and revision previews. Long replies fold only between complete blocks; a single long block stays whole. **展开全文** and **收起全文** preserve the reading state as replies refresh. Formatting changes the display only: saved notes, excerpts and copied revisions retain their original Markdown. HTML and images remain text, and only explicit HTTP/HTTPS links are clickable. This is a Markdown subset, not the full Obsidian note renderer.
 
+## Stopping replies
+
+Click **停止** in a running reply to stop that companion. The run bar above the input stops this conversation and clears waiting replies. With an empty draft, the Send button also becomes Stop; typing a follow-up or adding a passage or citation restores Send while the run-bar Stop remains available. Escape works from an empty focused input. Already generated text stays in the conversation and can be saved or excerpted after cancellation.
+
 ## Quoting other conversations and matter pages
 
 Choose **引猫咖记忆** in the chat toolbar or in the Lens, or run **Cite Cat Cafe Memory**. Type what to look for and press Enter: the dialog lists matching messages from your other Cat Cafe conversations and says how the cafe searched (by the letter or by meaning, in full or in part). Nothing is searched until you ask. **事情记忆** lists the cafe's matter pages, the cats' written summaries of things settled, each with its own range of application.

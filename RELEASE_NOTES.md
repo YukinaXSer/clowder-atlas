@@ -1,11 +1,11 @@
-# 0.0.10 — stop companion replies (local candidate)
+# 0.0.10 — stop companion replies
 
 - Stop one companion from its reply bubble, or stop the current conversation from the run bar above the input. Conversation stop also clears pending replies before canceling live work.
 - With an empty draft, the Send button becomes Stop while replies are running or waiting to start. Typing a follow-up, adding a passage or adding a citation restores Send; the run-bar Stop stays available. Escape stops only from an empty, focused input, outside IME composition.
 - Accepted chat and seminar sends expose Stop before the first reply appears. Cancellation retains partial reply text and its formatting; canceled replies can be saved or excerpted.
 - Stop failures preserve the reply state and allow retry. Execution controls are scoped to the current Cafe and conversation; a late stop or poll cannot overwrite another conversation or a newer canceled state.
 
-This candidate requires local review and operator trial before publication. It adds no settings migration or external dependency.
+Validated in isolated desktop Obsidian and independently reviewed, then tested and approved for publication by the operator. No settings migration or external dependency is added. Install main.js, manifest.json and styles.css from the same release. The approved local 0.0.10 trial has identical plugin files and needs no reinstall.
 
 # 0.0.9 — readable companion replies
 

@@ -2556,3 +2556,122 @@ body.theme-light .atlas-lens-snippet { background: rgba(0, 0, 0, 0.03); }
 .atlas-cafe-chat button.atlas-chat-expand-btn:focus-visible,
 .atlas-chat-table-wrap:focus-visible,
 .atlas-chat-link:focus-visible { outline: 2px solid var(--atlas-accent-primary); outline-offset: 2px; }
+
+/* Stop generation & active run bar */
+.atlas-cafe-chat {
+  --atlas-stop-accent: #C2543C;
+  --atlas-stop-bg: color-mix(in srgb, #C2543C 10%, transparent);
+  --atlas-stop-border: color-mix(in srgb, #C2543C 32%, transparent);
+}
+body.theme-dark .atlas-cafe-chat {
+  --atlas-stop-accent: #E07A5F;
+  --atlas-stop-bg: color-mix(in srgb, #E07A5F 14%, transparent);
+  --atlas-stop-border: color-mix(in srgb, #E07A5F 36%, transparent);
+}
+
+/* 1. Running status bar above input tools */
+.atlas-chat-run-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--atlas-stop-border);
+  background: var(--atlas-stop-bg);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.atlas-chat-run-bar[hidden] { display: none !important; }
+.atlas-chat-run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--atlas-text-title);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.atlas-chat-run-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--atlas-stop-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--atlas-stop-accent) 25%, transparent);
+}
+button.atlas-chat-run-stop-btn,
+button.atlas-chat-stop-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  height: auto;
+  border-radius: 999px;
+  border: 1px solid var(--atlas-stop-border);
+  background: var(--atlas-bg-card, rgba(255, 255, 255, 0.65));
+  color: var(--atlas-stop-accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  flex: none;
+}
+body.theme-dark button.atlas-chat-run-stop-btn,
+body.theme-dark button.atlas-chat-stop-pill {
+  background: rgba(25, 23, 21, 0.7);
+}
+button.atlas-chat-run-stop-btn:hover:not(:disabled),
+button.atlas-chat-stop-pill:hover:not(:disabled) {
+  background: var(--atlas-stop-bg);
+  border-color: var(--atlas-stop-accent);
+}
+button.atlas-chat-run-stop-btn:disabled,
+button.atlas-chat-stop-pill:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 2. Geometric stop square icon (zero emoji, works even if Lucide icon set varies) */
+.atlas-chat-stop-square {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  background: currentColor;
+  flex: none;
+}
+
+/* 3. Composer primary button in Stop mode */
+.atlas-cafe-chat button.atlas-chat-send-btn.is-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: var(--atlas-stop-bg);
+  color: var(--atlas-stop-accent);
+  border: 1px solid var(--atlas-stop-border);
+  font-weight: 700;
+}
+.atlas-cafe-chat button.atlas-chat-send-btn.is-stop:hover:not(:disabled) {
+  border-color: var(--atlas-stop-accent);
+}
+
+/* 4. Cancelled / ended badge in bubble footer */
+.atlas-chat-bubble-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.atlas-chat-pending.is-ended {
+  color: var(--atlas-text-sub);
+  font-style: normal;
+}
+
+.atlas-chat-run-status > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.atlas-chat-run-dot { animation: atlas-run-pulse 1.6s ease-in-out infinite; }
+@keyframes atlas-run-pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .atlas-chat-run-dot { animation: none; } }

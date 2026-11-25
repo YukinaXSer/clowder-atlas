@@ -2346,7 +2346,8 @@ body.theme-dark {
 /* Lens v2 · Quiet Precision: native neutral surfaces, plugin metadata kept quiet, the document's own words in the quote slot. */
 /* Hide 0.0.6 document residue as soon as this stylesheet is active, even before its JS is reloaded. */
 .atlas-reading-banner { display: none !important; }
-.atlas-lens-v2 { overflow-x: hidden; padding: 0 0 24px; background: var(--atlas-bg-panel); }
+/* Match the host's view-content specificity, scoped to this Lens only. */
+.workspace-leaf-content .view-content.atlas-lens-v2 { overflow-x: hidden; padding: 0 0 44px; background: var(--atlas-bg-panel); }
 .atlas-lens-v2 > .atlas-topbar { flex-wrap: wrap; }
 .atlas-lens-v2 [hidden] { display: none !important; }
 

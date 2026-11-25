@@ -109,3 +109,5 @@ With Obsidian installed, `npm run test:desktop` launches a fresh disposable prof
 ## License
 
 [MIT](LICENSE). No third-party runtime libraries are bundled; the Obsidian API is provided by the host application. Clowder Atlas is a community project and is not affiliated with or endorsed by Obsidian.
+
+Atlas adds no status-bar item by default. Enable the optional compact Atlas status in plugin settings to show companion counts; the full memory count stays in its tooltip. The Lens leaves space above the host status bar.

@@ -55,6 +55,7 @@ const DEFAULT_SETTINGS = {
   atlasDir: ATLAS_DIR_DEFAULT,
   canvasDir: '_atlas/canvases',
   enableGraphColors: true,
+  showStatusBar: false,
   catCafeEnabled: false,
   catCafeAddress: 'http://localhost:3004',
   defaultMemoryType: 'semantic',
@@ -1964,6 +1965,17 @@ class ClowderAtlasSettingTab extends obsidian.PluginSettingTab {
 
     const themeNote = containerEl.createEl('p', { cls: 'setting-item-description' });
     themeNote.textContent = '深色/浅色主题 100% 跟随 Obsidian，无需手动开关';
+
+    new obsidian.Setting(containerEl)
+      .setName('在底部状态栏显示 Atlas 状态')
+      .setDesc('默认不占用底栏；开启后显示短标，悬停查看完整记忆与伴读计数。')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.showStatusBar === true)
+        .onChange(async (value) => {
+          this.plugin.settings.showStatusBar = value;
+          this.plugin.updateStatusBar();
+          await this.plugin.saveSettings();
+        }));
 
     // ── Advanced ──
     containerEl.createEl('h3', { text: '高级' });
@@ -7182,6 +7194,16 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
   updateStatusBar() {
     if (!this.statusBarItem) return;
+    const item = this.statusBarItem;
+    item.hidden = this.settings.showStatusBar !== true;
+    if (item.hidden) {
+      item.style.display = 'none';
+      item.setText('');
+      item.removeAttribute('title');
+      item.removeAttribute('aria-label');
+      return;
+    }
+    item.style.removeProperty('display');
     const files = this.app.vault.getMarkdownFiles();
     let count = 0;
     for (const file of files) {
@@ -7190,10 +7212,13 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     }
     if (this.isCafeConnected) {
       const summoned = this.getSummonedCats().length;
-      this.statusBarItem.setText(`Atlas · ${count} 篇 · 伴读 ${summoned}/${this.cafeClient.cats.length}`);
+      item.setText(`Atlas ${summoned}/${this.cafeClient.cats.length}`);
+      item.setAttribute('title', `Atlas · ${count} 篇记忆 · 伴读 ${summoned}/${this.cafeClient.cats.length}`);
     } else {
-      this.statusBarItem.setText(`Atlas · ${count} 篇`);
+      item.setText('Atlas');
+      item.setAttribute('title', `Atlas · ${count} 篇记忆`);
     }
+    item.setAttribute('aria-label', item.getAttribute('title'));
   }
 
   // ── Helpers ──

@@ -6,6 +6,8 @@
 - Shared-source keys include the originating Cafe and coordinate type. Unknown origins remain read-only; low-link sourced notes have reserved chart slots without artificial brightness. Large shared discussions have bounded visual edges and canvas pages for every shared note.
 - No details card is used. Midnight labels use collision-aware soft text; explicit map mode adds an ink ripple, cached parchment grain, alternating pawprints and swallowtail name ribbons. Narrow and short layouts keep actions separate; reduced-motion preferences produce a static canvas.
 
+- Atlas status is now hidden by default. An immediate settings toggle enables the compact `Atlas 1/3` / offline `Atlas` label, with full counts on hover. Lens bottom spacing overrides the host padding within the Lens only; plugin CSS leaves the global status bar untouched.
+
 Candidate validation and independent review receipts are retained with the local trial. Publication requires a new operator decision after trial; no settings migration or external dependency is added.
 
 # 0.0.10 — stop companion replies

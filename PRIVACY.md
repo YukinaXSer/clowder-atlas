@@ -47,7 +47,7 @@ The unsent passage tray and request-bound source snapshots (selected text, vault
 
 ## Optional Marauder star chart
 
-Opening the star chart makes no network requests. Source passages, shared-source links, contributor markers and dotted trails are derived locally from frontmatter, link caches and existing request records. Trails connect coauthored or maintained notes in note-modification order; they do not record a cat's visits or reading history. Unknown-origin historical coordinates are read-only. Sources from different Cafe addresses never share a passage, even when their ids match.
+Opening the star chart makes no network requests. Astrolabe source portals, shared-source links, contributor ribbons and alternating pawprint trails are derived locally from frontmatter, link caches and existing request records. The animated trails connect coauthored or maintained notes in note-modification order; their walking motion is a visual presentation of those records, not current travel. They do not record a cat's visits or reading history. Unknown-origin historical coordinates are read-only. Sources from different Cafe addresses never share a passage, even when their ids match.
 
 Selecting a star explicitly checks only that note's Cafe citations, through the same session reads and one-minute cache as the Lens. Previewing a source reads its original on demand. No note body or file path is sent for these checks, and the original text is not saved by the star chart.
 

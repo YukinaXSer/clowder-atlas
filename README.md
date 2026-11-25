@@ -13,9 +13,9 @@ Recorded in desktop Obsidian with Clowder Atlas 0.0.7. The demo has Chinese narr
 
 ### 0.0.11 local trial: Marauder star chart
 
-Click a star to reveal recorded Cafe sources, shared-source notes and contributor records. Source diamonds open the existing preview; unknown origins and other Cafes stay read-only. Double-click opens the note; click blank space or press Escape inside the chart to clear the selection.
+Click a star to clear the surrounding field and unfold an astrolabe: inner source diamonds preview recorded Cafe memory and outer peer stars connect to their shared source. The canvas contains no details card; unknown origins and other Cafes stay read-only. Double-click opens the note; click blank space or press Escape inside the chart to clear the selection.
 
-The bottom **活点** toggle adds source rings, contributor paws and trails ordered by note modification time. Cat pills filter contributors. While connected and visible, this explicit mode may show activity in bound conversations; it does not claim that a cat is reading a file. Opening the chart alone sends no requests. See [PRIVACY.md](PRIVACY.md) for the exact network behavior. This candidate remains a local trial until the operator approves publication.
+The bottom **活点** toggle reveals a parchment dial with an ink ripple, alternating pawprints and clickable swallowtail contributor ribbons. Trails follow note-modification order. Ribbons and cat pills filter contributors; source/peer page controls keep all records reachable. Changed sources turn their whole filament crimson. While connected and visible, this explicit mode may show activity in bound conversations; it does not claim that a cat is reading a file. Opening the chart alone sends no requests. See [PRIVACY.md](PRIVACY.md) for the exact network behavior. This candidate remains a local trial until the operator approves publication.
 
 ## What you can do
 

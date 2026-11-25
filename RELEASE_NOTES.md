@@ -1,4 +1,4 @@
-# 0.0.11 — Marauder star chart (local trial candidate)
+# 0.0.11 — Marauder star chart
 
 - Single-click a star to clear the field and unfold a dual-ring astrolabe, with flowing source filaments, outer shared-memory peers and coauthor ribbons. Source diamonds preview originals; double-click opens the note. Blank space or Escape clears the selection; Lens focus selects and centers the note.
 - The explicit 活点 toggle adds source rings, bounded resonance arcs, contributor paws and trails ordered by note modification time. Cat pills filter contributors. Live markers show only bound conversation activity, never inferred file reads.
@@ -8,7 +8,7 @@
 
 - Atlas status is now hidden by default. An immediate settings toggle enables the compact `Atlas 1/3` / offline `Atlas` label, with full counts on hover. Lens bottom spacing overrides the host padding within the Lens only; plugin CSS leaves the global status bar untouched.
 
-Candidate validation and independent review receipts are retained with the local trial. Publication requires a new operator decision after trial; no settings migration or external dependency is added.
+Validated in isolated desktop Obsidian, independently reviewed, and tested and approved for publication by the operator. No settings migration or external dependency is added. Install main.js, manifest.json and styles.css from the same release. The approved local 0.0.11 trial has identical plugin files and needs no reinstall. Local-only appearance snippets are not included in the plugin package.
 
 # 0.0.10 — stop companion replies
 

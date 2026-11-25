@@ -11,11 +11,11 @@ Clowder Atlas helps you trace a note back to its sources and see where it fits i
 Recorded in desktop Obsidian with Clowder Atlas 0.0.7. The demo has Chinese narration and uses sample notes and prepared companion replies.
 
 
-### 0.0.11 local trial: Marauder star chart
+### Marauder star chart (0.0.11)
 
 Click a star to clear the surrounding field and unfold an astrolabe: inner source diamonds preview recorded Cafe memory and outer peer stars connect to their shared source. The canvas contains no details card; unknown origins and other Cafes stay read-only. Double-click opens the note; click blank space or press Escape inside the chart to clear the selection.
 
-The bottom **活点** toggle reveals a parchment dial with an ink ripple, alternating pawprints and clickable swallowtail contributor ribbons. Trails follow note-modification order. Ribbons and cat pills filter contributors; source/peer page controls keep all records reachable. Changed sources turn their whole filament crimson. While connected and visible, this explicit mode may show activity in bound conversations; it does not claim that a cat is reading a file. Opening the chart alone sends no requests. See [PRIVACY.md](PRIVACY.md) for the exact network behavior. This candidate remains a local trial until the operator approves publication.
+The bottom **活点** toggle reveals a parchment dial with an ink ripple, alternating pawprints and clickable swallowtail contributor ribbons. Trails follow note-modification order. Ribbons and cat pills filter contributors; source/peer page controls keep all records reachable. Changed sources turn their whole filament crimson. While connected and visible, this explicit mode may show activity in bound conversations; it does not claim that a cat is reading a file. Opening the chart alone sends no requests. See [PRIVACY.md](PRIVACY.md) for the exact network behavior. Available in 0.0.11 after independent review and operator trial approval.
 
 ## What you can do
 

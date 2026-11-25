@@ -1,3 +1,13 @@
+# 0.0.11 — Marauder star chart (local trial candidate)
+
+- Single-click a star to inspect recorded Cafe passages, shared-source notes and coauthor records. Satellite diamonds preview sources; double-click opens the note. Blank space or Escape clears the selection; Lens focus selects and centers the note.
+- The explicit 活点 toggle adds source rings, bounded resonance arcs, contributor paws and trails ordered by note modification time. Cat pills filter contributors. Live markers show only bound conversation activity, never inferred file reads.
+- Opening the chart adds no network requests. Selection checks only the selected note's citations; visible, connected 活点 mode reads at most one project execution projection per ten seconds. Hiding, closing, disconnecting and switching Cafes retire the loop and discard late responses.
+- Shared-source keys include the originating Cafe and coordinate type. Unknown origins remain read-only; low-link sourced notes have reserved chart slots without artificial brightness. Large shared discussions have bounded visual edges and a complete inspector list.
+- The inspector fits narrow and short panes, excludes help/legend overlays when needed, and keeps the warm chart palette in both host themes. Reduced-motion preferences disable moving dashes and pulses.
+
+Candidate validation and independent review receipts are retained with the local trial. Publication requires a new operator decision after trial; no settings migration or external dependency is added.
+
 # 0.0.10 — stop companion replies
 
 - Stop one companion from its reply bubble, or stop the current conversation from the run bar above the input. Conversation stop also clears pending replies before canceling live work.

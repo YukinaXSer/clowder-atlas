@@ -2,13 +2,20 @@
 
 [简体中文](README.zh-CN.md)
 
-Clowder Atlas helps you trace a note back to its sources and see where it fits in your Obsidian vault. Open the **Provenance Lens** to read the paragraphs behind links, then find the note on an interactive **3D star chart**. Rotate or zoom the chart and click a star to open its note.
+Clowder Atlas helps you trace a note back to its sources and see where it fits in your Obsidian vault. Open the **Provenance Lens** to read the paragraphs behind links, then find the note on an interactive **3D star chart**. Rotate or zoom the chart, click a star to inspect its recorded sources, and double-click to open its note.
 
 [**Watch the 71-second demo**](https://yukinaxser.github.io/clowder-atlas/)
 
 [![Watch Clowder Atlas in Obsidian. The cover shows the three companions and the Clowder Atlas title.](https://yukinaxser.github.io/clowder-atlas/clowder-atlas-demo.jpg)](https://yukinaxser.github.io/clowder-atlas/)
 
 Recorded in desktop Obsidian with Clowder Atlas 0.0.7. The demo has Chinese narration and uses sample notes and prepared companion replies.
+
+
+### 0.0.11 local trial: Marauder star chart
+
+Click a star to reveal recorded Cafe sources, shared-source notes and contributor records. Source diamonds open the existing preview; unknown origins and other Cafes stay read-only. Double-click opens the note; click blank space or press Escape inside the chart to clear the selection.
+
+The bottom **活点** toggle adds source rings, contributor paws and trails ordered by note modification time. Cat pills filter contributors. While connected and visible, this explicit mode may show activity in bound conversations; it does not claim that a cat is reading a file. Opening the chart alone sends no requests. See [PRIVACY.md](PRIVACY.md) for the exact network behavior. This candidate remains a local trial until the operator approves publication.
 
 ## What you can do
 

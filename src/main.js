@@ -883,6 +883,17 @@ class CatCafeClient {
     } catch (err) { if (this._missingRoute(err)) return null; throw err; }
   }
 
+  /** Read-only project projection for an explicitly enabled, visible Marauder chart. No file paths are sent. */
+  async fetchProjectActiveExecutions(anchorThreadId) {
+    if (!this.connected || this.destroyed || !this.threads.some(t => t.id === anchorThreadId)) return [];
+    try {
+      const data = await this._sessionRequest('/api/threads/' + encodeURIComponent(anchorThreadId) + '/executions/active');
+      return (Array.isArray(data?.executions) ? data.executions : [])
+        .filter(e => typeof e.threadId === 'string' && typeof e.catId === 'string' && e.kind === 'live_invocation')
+        .map(({ threadId, catId, kind }) => ({ threadId, catId, kind }));
+    } catch { return []; }
+  }
+
   async readReplyActivity(threadId) {
     const pending = this._pendingReplies.get(threadId);
     const executions = await this._threadExecutions(threadId);
@@ -1971,6 +1982,161 @@ class ClowderAtlasSettingTab extends obsidian.PluginSettingTab {
 // ═══════════════════════════════════════════════
 // Star Chart View — constellation-style memory atlas
 // ═══════════════════════════════════════════════
+// Marauder data is local provenance, never a record of who actually read a file. Unknown origins stay unlinked.
+function starCoordinate(value) {
+  return typeof value === 'string' && value.trim() && !value.includes('{{') ? value.trim() : '';
+}
+
+function collectStarPassages({ file, note = null, frontmatter = {}, client, settings = {} }) {
+  const n = note || frontmatter;
+  const entries = new Map();
+  const connected = Boolean(client?.connected);
+  const threadKnown = id => Boolean(client?.threads?.some(t => t.id === id));
+  const add = ({ type, ref, cafe = '', threadId = null, citation = null, label, sublabel }) => {
+    ref = starCoordinate(ref);
+    if (!ref) return;
+    const scope = starCoordinate(cafe);
+    const originMatches = Boolean(scope && scope === client?.baseUrl);
+    const groupType = type === 'matter' ? 'matter' : 'thread';
+    const coordinate = type === 'matter' ? citationCoordinates('matter', ref)?.matterId : threadId;
+    const key = scope && coordinate ? JSON.stringify([scope, groupType, coordinate]) : null;
+    const id = JSON.stringify([scope, type, ref]);
+    const actionable = connected && originMatches && (Boolean(citation) || threadKnown(threadId));
+    const readonlyReason = !scope ? '未记录来源猫咖，仅保留坐标'
+      : !connected ? '猫咖未连接' : !originMatches ? '来自另一台猫咖'
+      : !citation && !threadKnown(threadId) ? '当前猫咖未列出这个对话' : '';
+    if (!entries.has(id)) entries.set(id, { id, key, type, ref, cafe: scope, threadId, citation, label: label || ref, sublabel, actionable, readonlyReason });
+  };
+  for (const c of cafeEvidence(n)) {
+    const at = citationCoordinates(c.type, c.ref);
+    add({ type: c.type, ref: c.ref, cafe: c.cafe, threadId: at.threadId || null, citation: c,
+      label: c.label, sublabel: c.type === 'matter' ? '事情记忆' : '跨线对话' });
+  }
+  const source = starCoordinate(n?.atlas_source_ref || frontmatter.atlas_source_ref);
+  if (source) add({ type: 'thread', ref: source, threadId: source,
+    cafe: (n?.atlas_source || frontmatter.atlas_source) === 'clowder_ai' ? n?.atlas_source_cafe || frontmatter.atlas_source_cafe : '',
+    label: source, sublabel: '原研讨' });
+  for (const r of [...Object.values(settings.revisionTargets || {}), ...Object.values(settings.passageRequests || {})]) {
+    if (!r?.cafe || !r.messageIds?.length || !(r.path === file.path || r.passages?.some(p => p.path === file.path))) continue;
+    add({ type: 'thread', ref: r.threadId, threadId: r.threadId, cafe: r.cafe,
+      label: client?.baseUrl === r.cafe ? client.threads?.find(t => t.id === r.threadId)?.title : r.threadId, sublabel: '相关研讨' });
+  }
+  const legacy = starCoordinate(frontmatter.source_thread);
+  if (/^thread_[a-zA-Z0-9_-]+$/.test(legacy) && ![...entries.values()].some(e => e.threadId === legacy)) {
+    add({ type: 'thread', ref: legacy, threadId: legacy, sublabel: '出处坐标' });
+  }
+  const order = { matter: 0, message: 1, 原研讨: 2, 相关研讨: 3, 出处坐标: 4 };
+  return [...entries.values()].sort((a, b) => (order[a.type] ?? order[a.sublabel] ?? 5) - (order[b.type] ?? order[b.sublabel] ?? 5));
+}
+
+function resolveFootprintCat(raw, client) {
+  const value = typeof raw === 'object' && raw ? raw.catId || raw.id || raw.name || raw.nickname : raw;
+  const name = starCoordinate(value).replace(/^@/, '').split(/\s*[/（(]\s*/)[0].trim();
+  const lower = name.toLowerCase();
+  if (!name || ['co-creator', 'operator', 'owner', 'user', '用户', '大当家'].includes(lower)) return null;
+  const norm = s => String(s || '').trim().replace(/^@/, '').toLowerCase();
+  const cat = client?.cats?.find(c => [c.id, c.nickname, c.name, c.displayName].some(v => v && norm(v) === lower));
+  const profile = SpecParser.resolveCatProfile(cat || name);
+  const knownProfile = profile && (Object.entries(CAT_COLORS).some(([key, p]) => p === profile
+    && [key, p.name, p.nickname].some(v => v && norm(v) === lower)) || /^cat-[a-z0-9]+$/i.test(name));
+  const profileKey = knownProfile ? Object.keys(CAT_COLORS).find(k => CAT_COLORS[k] === profile) : null;
+  const palette = ['#E6BC7A', '#8AB4F8', '#73DACA', '#E07A5F', '#C39BD3', '#95C47D'];
+  let hash = 0;
+  for (const ch of lower) hash = (Math.imul(hash, 31) + ch.codePointAt(0)) >>> 0;
+  const proposed = cat?.color?.primary || (typeof cat?.color === 'string' ? cat.color : '') || (knownProfile ? profile.color : '');
+  return { catKey: cat?.id || (profileKey ? 'profile:' + profileKey : 'name:' + lower),
+    name: cat?.nickname || (knownProfile ? profile.nickname : '') || cat?.displayName || cat?.name || name,
+    color: /^#[a-f0-9]{6}$/i.test(proposed || '') ? proposed : palette[hash % palette.length], known: Boolean(cat || knownProfile) };
+}
+
+function collectStarFootprints({ file, note = null, frontmatter = {}, client, settings = {}, liveCatsByThread = new Map(), now = Date.now() }) {
+  const result = new Map(), n = note || frontmatter;
+  const mtime = Number(file.stat?.mtime) || 0;
+  const days = Math.max(0, now - mtime) / 86400000;
+  const add = (raw, sourceKind, knownOnly = false) => {
+    const cat = resolveFootprintCat(raw, client);
+    if (!cat || (knownOnly && !cat.known)) return;
+    const old = result.get(cat.catKey);
+    if (old) { if (!old.sources.includes(sourceKind)) old.sources.push(sourceKind); old.live ||= sourceKind === 'live'; return; }
+    result.set(cat.catKey, { ...cat, sourceKind, sources: [sourceKind], live: sourceKind === 'live', mtime,
+      freshness: days <= 7 ? 1 : days <= 30 ? 0.65 : 0.38 });
+  };
+  const list = value => Array.isArray(value) ? value : value ? [value] : [];
+  for (const raw of [...list(n?.atlas_authors), ...list(n?.atlas_author_details)]) add(raw, 'author');
+  for (const raw of [...list(frontmatter.maintainer), ...list(frontmatter.author)]) add(raw, 'maintainer', true);
+  for (const r of Object.values(settings.revisionTargets || {})) {
+    if (r?.cafe === client?.baseUrl && r?.path === file.path && r.messageIds?.length && r.catId) add(r.catId, 'revision', true);
+  }
+  for (const p of collectStarPassages({ file, note, frontmatter, client, settings })) {
+    if (!p.actionable || !p.threadId || p.cafe !== client?.baseUrl) continue;
+    for (const catId of liveCatsByThread.get(p.threadId) || []) add(catId, 'live');
+  }
+  return [...result.values()];
+}
+
+function selectChartStars(scored, { focusPath = null, limit = 80, passageReserve = 15 } = {}) {
+  const ranked = [...scored].sort((a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path));
+  const selected = [], paths = new Set();
+  const put = s => { if (s && !paths.has(s.file.path) && selected.length < limit) { selected.push(s); paths.add(s.file.path); } };
+  put(ranked.find(s => s.file.path === focusPath));
+  const top = new Set(ranked.filter(s => s.score > 0).slice(0, Math.max(0, limit - passageReserve)).map(s => s.file.path));
+  ranked.filter(s => s.passages?.length && !top.has(s.file.path))
+    .sort((a, b) => b.passages.length - a.passages.length || (b.file.stat?.mtime || 0) - (a.file.stat?.mtime || 0))
+    .slice(0, passageReserve).forEach(put);
+  ranked.filter(s => s.score > 0).forEach(put);
+  return selected;
+}
+
+function buildMarauderIndex(allItems, mainStars, { now = Date.now(), maxFullMeshPerKey = 12, maxStarEdges = 10 } = {}) {
+  const groups = new Map(), byPath = new Map(allItems.map(s => [s.file.path, s])), visible = new Set(mainStars.map(s => s.file.path));
+  for (const s of allItems) for (const p of s.passages || []) {
+    if (!p.key) continue;
+    if (!groups.has(p.key)) groups.set(p.key, new Set());
+    groups.get(p.key).add(s.file.path);
+  }
+  const globalEdges = [], seenEdges = new Set();
+  for (const [key, paths] of groups) {
+    const members = [...paths];
+    if (members.length > maxFullMeshPerKey) continue;
+    const shown = members.filter(p => visible.has(p));
+    for (let a = 0; a < shown.length; a++) for (let b = a + 1; b < shown.length; b++) {
+      const id = [shown[a], shown[b]].sort().join('\n');
+      if (!seenEdges.has(id) && globalEdges.length < 240) { seenEdges.add(id); globalEdges.push({ a: shown[a], b: shown[b], key }); }
+    }
+  }
+  const recent = (a, b) => (byPath.get(b.path).file.stat?.mtime || 0) - (byPath.get(a.path).file.stat?.mtime || 0)
+    || byPath.get(b.path).backlinks - byPath.get(a.path).backlinks;
+  // Keep an inverted source index, not all O(n squared) peer pairs for a vault-wide discussion.
+  const peers = { get(path) {
+    const map = new Map();
+    for (const passage of byPath.get(path)?.passages || []) {
+      for (const other of groups.get(passage.key) || []) {
+        if (other === path) continue;
+        if (!map.has(other)) map.set(other, { path: other, title: byPath.get(other).note?.title || byPath.get(other).file.basename, keys: [] });
+        if (!map.get(other).keys.includes(passage.key)) map.get(other).keys.push(passage.key);
+      }
+    }
+    return [...map.values()].sort(recent);
+  } };
+  const cats = new Map();
+  for (const s of mainStars) for (const f of s.footprints || []) {
+    if (!cats.has(f.catKey)) cats.set(f.catKey, { ...f, items: [] });
+    cats.get(f.catKey).items.push(s);
+  }
+  const anyRecent = allItems.some(s => now - (s.file.stat?.mtime || 0) <= 30 * 86400000);
+  const trails = [];
+  for (const cat of cats.values()) {
+    const ordered = cat.items.filter(s => !anyRecent || now - (s.file.stat?.mtime || 0) <= 30 * 86400000)
+      .sort((a, b) => (a.file.stat?.mtime || 0) - (b.file.stat?.mtime || 0)).slice(anyRecent ? -5 : -3);
+    if (ordered.length >= 2) trails.push({ catKey: cat.catKey, color: cat.color, paths: ordered.map(s => s.file.path) });
+  }
+  const edgesFor = path => {
+    const large = (byPath.get(path)?.passages || []).some(p => (groups.get(p.key)?.size || 0) > maxFullMeshPerKey);
+    return (peers.get(path) || []).filter(p => visible.has(p.path)).slice(0, Math.min(maxStarEdges, large ? 8 : maxStarEdges)).map(p => ({ a: path, b: p.path, key: p.keys[0] }));
+  };
+  return { groups, peers, globalEdges, edgesFor, trails, cats: [...cats.values()].map(({ items, ...cat }) => cat) };
+}
+
 class StarChartView extends obsidian.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -1991,6 +2157,15 @@ class StarChartView extends obsidian.ItemView {
     this._time = 0;
     this._teardown = [];     // cleanup for whatever a build attached outside its own DOM
     this._openPanel = null;  // 'legend' | 'help' | null
+    this._selectedPath = null;
+    this._marauderMode = false;
+    this._catFilter = null;
+    this._satellitePos = [];
+    this._selectGeneration = 0;
+    this._liveCatsByThread = new Map();
+    this._citationStates = new Map();
+    this._livePollRun = null;
+    this._livePollTimer = null;
   }
 
   getViewType() { return VIEW_TYPE_STAR_CHART; }
@@ -2011,6 +2186,12 @@ class StarChartView extends obsidian.ItemView {
 
   /** Stop the render loop and detach window/document listeners and observers from the last build. */
   _disposeChart() {
+    this._stopLiveActivityPoll();
+    this._selectGeneration++;
+    this._marauderMode = false;
+    this._catFilter = null;
+    this._selectedPath = null;
+    this._satellitePos = [];
     if (this._animId) {
       cancelAnimationFrame(this._animId);
       this._animId = null;
@@ -2019,6 +2200,11 @@ class StarChartView extends obsidian.ItemView {
     this._teardown = [];
     for (const fn of fns) fn();
     this._openPanel = null;
+    this._chartCanvas = null;
+    this._chartRoot = null;
+    this._starInspector = null;
+    this._syncInspectorVisibility = null;
+    this._syncStarPause = null;
   }
 
   _listen(target, type, handler, options) {
@@ -2052,13 +2238,15 @@ class StarChartView extends obsidian.ItemView {
       const backlinks = backlinkCounts[file.path] || 0;
       const cache = this.plugin.app.metadataCache.getFileCache(file);
       const note = SpecParser.parse(cache?.frontmatter);
-      return { file, note, cache, backlinks, outlinks, score: backlinks * 2 + outlinks };
+      const input = { file, note, frontmatter: cache?.frontmatter || {}, client: this.plugin.cafeClient, settings: this.plugin.settings };
+      return { file, note, cache, backlinks, outlinks, score: backlinks * 2 + outlinks,
+        passages: collectStarPassages(input), footprints: collectStarFootprints(input) };
     });
 
     scored.sort((a, b) => b.score - a.score);
-    const focused = scored.find(s => s.file.path === this._focusPath);
-    const mainStars = scored.filter(s => s.score > 0 && s !== focused).slice(0, focused ? 79 : 80);
-    if (focused) mainStars.unshift(focused);
+    this._allStarItems = scored;
+    const mainStars = selectChartStars(scored, { focusPath: this._focusPath });
+    this._marauderIndex = buildMarauderIndex(scored, mainStars);
 
     // Build connection graph
     const nodeMap = {};
@@ -2210,6 +2398,7 @@ class StarChartView extends obsidian.ItemView {
   }
 
   _matchesFilter(star) {
+    if (this._marauderMode && this._catFilter && !star.footprints.some(f => f.catKey === this._catFilter)) return false;
     if (this._filter === 'all') return true;
     if (this._filter === 'star') return star.backlinks >= 5;
     if (this._filter === 'atlas') return !!star.note;
@@ -2220,6 +2409,9 @@ class StarChartView extends obsidian.ItemView {
   // Layout v2 (spec: research/agent-memory/internal/clowder-atlas/star-chart-layout-v2.md):
   // root grid = top bar (title + filters) · stage (canvas + overlays) · bottom bar (totals + actions)
   _buildChart(root) {
+    this._chartRoot = root;
+    this._dataClient = this.plugin.cafeClient;
+    this._citationStates.clear();
     const { mainStars, connections } = this._gatherData();
     root.classList.remove('is-empty', 'is-compact', 'is-narrow');
 
@@ -2233,7 +2425,7 @@ class StarChartView extends obsidian.ItemView {
       root.addClass('is-empty');
       root.createDiv('atlas-star-stage').createDiv({
         cls: 'atlas-star-empty',
-        text: '你的 Vault 还没有互相链接的笔记。开始用 [[双链]] 连接你的想法，星空就会亮起来。'
+        text: '这个库还没有双链或带来源的笔记。用 [[双链]] 连接想法，或保存带来源的研讨笔记，星空就会亮起来。'
       });
       return;
     }
@@ -2292,13 +2484,17 @@ class StarChartView extends obsidian.ItemView {
     const stage = root.createDiv('atlas-star-stage');
     stage.createSpan({
       cls: 'atlas-star-sr-only',
-      text: '记忆星图：拖拽旋转，滚轮或双指缩放，点击星体打开笔记',
+      text: '记忆星图：拖拽旋转，滚轮或双指缩放，单击显影密道，双击打开笔记',
       attr: { id: `atlas-star-canvas-label-${uid}` },
     });
     const canvas = stage.createEl('canvas', {
       cls: 'atlas-star-canvas',
       attr: { role: 'img', 'aria-labelledby': `atlas-star-canvas-label-${uid}` },
     });
+    canvas.setAttribute('tabindex', '0');
+    this._chartCanvas = canvas;
+    this._catBar = stage.createDiv({ cls: 'atlas-star-cat-bar', attr: { hidden: '', role: 'group', 'aria-label': '共创记录筛选' } });
+    this._starInspector = stage.createEl('section', { cls: 'atlas-star-inspector', attr: { hidden: '', 'aria-label': '密道与足迹' } });
     const sceneHint = stage.createDiv({ cls: 'atlas-star-scene-hint', attr: { 'aria-live': 'polite' } });
     const tooltip = stage.createDiv('atlas-star-tooltip');
     tooltip.style.display = 'none';
@@ -2314,6 +2510,7 @@ class StarChartView extends obsidian.ItemView {
         const n = this._stars.filter((s) => this._matchesFilter(s)).length;
         sceneHint.textContent = n > 0 ? `${f.full} · ${n} 颗星高亮` : `${f.full} · 暂无匹配的星`;
       }
+      this._renderCatBar();
     };
     setFilter(this._filter);
 
@@ -2383,12 +2580,23 @@ class StarChartView extends obsidian.ItemView {
       }
 
       this._hoveredIdx = closest;
+      this._hoveredSatellite = this._satellitePos.find(p => Math.hypot(mx - p.sx, my - p.sy) <= 13) || null;
+      if (this._hoveredSatellite) {
+        const p = this._hoveredSatellite.passage;
+        tooltip.textContent = p.sublabel + ' · ' + p.label;
+        tooltip.style.display = 'block';
+        tooltip.style.left = Math.max(8, Math.min(mx + 12, rect.width - tooltip.offsetWidth - 8)) + 'px';
+        tooltip.style.top = Math.max(8, my - tooltip.offsetHeight - 10) + 'px';
+        canvas.style.cursor = 'pointer';
+        return;
+      }
       if (closest >= 0) {
         const s = this._stars[closest];
         const name = s.note?.title || s.file.basename;
         const lumLabel = s.backlinks >= 5 ? '恒星' : s.backlinks >= 2 ? '温星' : s.backlinks >= 1 ? '冷星' : '暗尘';
         const typeTag = s.note ? ` · ${MEMORY_TYPE_COLORS[s.note.memory_type]?.label || 'Atlas'}` : '';
-        tooltip.textContent = `${name} · 被 ${s.backlinks} 篇笔记链接 · ${lumLabel}${typeTag}`;
+        tooltip.textContent = `${name} · 被 ${s.backlinks} 篇笔记链接 · ${lumLabel}${typeTag}`
+          + (s.passages.length ? ' · ' + s.passages.length + ' 条密道' : '') + (s.footprints.length ? ' · ' + s.footprints.length + ' 只猫共创记录' : '');
         tooltip.style.display = 'block';
         // Canvas fills the stage, so canvas coordinates are stage coordinates; clamp on every side.
         const tw = tooltip.offsetWidth;
@@ -2403,13 +2611,18 @@ class StarChartView extends obsidian.ItemView {
     };
     this._listen(window, 'mousemove', onMouseMove);
 
-    // Click to open note
-    canvas.addEventListener('click', () => {
+    // One click inspects provenance; double click keeps a direct route to the note.
+    canvas.addEventListener('click', (e) => {
       if (dragDistance > 4) return;
-      if (this._hoveredIdx >= 0) {
-        const s = this._stars[this._hoveredIdx];
-        this.plugin.app.workspace.getLeaf(false).openFile(s.file);
-      }
+      onMouseMove(e);
+      if (this._hoveredSatellite) this._openStarPassage(this._hoveredSatellite.passage);
+      else if (this._hoveredIdx >= 0) this._selectStar(this._stars[this._hoveredIdx].file.path);
+      else this._clearStarSelection();
+    });
+    canvas.addEventListener('dblclick', (e) => {
+      if (dragDistance > 4) return;
+      onMouseMove(e);
+      if (this._hoveredIdx >= 0 && !this._hoveredSatellite) this.plugin.app.workspace.getLeaf(false).openFile(this._stars[this._hoveredIdx].file);
     });
 
     // ── Zoom: mouse wheel + trackpad pinch + touch pinch ──
@@ -2438,13 +2651,17 @@ class StarChartView extends obsidian.ItemView {
 
     let touchStartDist = 0;
     let touchStartZoom = 1;
+    let touchTap = false;
 
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       if (e.touches.length === 1) {
+        touchTap = true;
+        dragDistance = 0;
         this._isDragging = true;
         this._lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       } else if (e.touches.length === 2) {
+        touchTap = false;
         this._isDragging = false;
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -2458,6 +2675,7 @@ class StarChartView extends obsidian.ItemView {
       if (e.touches.length === 1 && this._isDragging) {
         const dx = e.touches[0].clientX - this._lastMouse.x;
         const dy = e.touches[0].clientY - this._lastMouse.y;
+        dragDistance += Math.abs(dx) + Math.abs(dy);
         this._rotY += dx * 0.005;
         this._rotX += dy * 0.005;
         this._rotX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this._rotX));
@@ -2474,6 +2692,14 @@ class StarChartView extends obsidian.ItemView {
     canvas.addEventListener('touchend', (e) => {
       if (e.touches.length === 0) {
         this._isDragging = false;
+        if (touchTap && dragDistance <= 4 && e.changedTouches.length) {
+          const t = e.changedTouches[0];
+          onMouseMove({ target: canvas, clientX: t.clientX, clientY: t.clientY });
+          if (this._hoveredSatellite) this._openStarPassage(this._hoveredSatellite.passage);
+          else if (this._hoveredIdx >= 0) this._selectStar(this._stars[this._hoveredIdx].file.path);
+          else this._clearStarSelection();
+        }
+        touchTap = false;
       } else if (e.touches.length === 1) {
         this._isDragging = true;
         this._lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -2514,6 +2740,7 @@ class StarChartView extends obsidian.ItemView {
       this._setIcon(pause.icon, [this._paused ? 'play' : 'pause']);
     };
     syncPause();
+    this._syncStarPause = syncPause;
     pause.btn.addEventListener('click', () => {
       this._paused = !this._paused;
       syncPause();
@@ -2525,6 +2752,10 @@ class StarChartView extends obsidian.ItemView {
       this._rotY = 0;
       this._zoom = 1.0;
     });
+    const marauder = addAction({ label: '开启活点显影', icons: ['footprints', 'paw-print', 'compass'], text: '活点' });
+    this._marauderButton = marauder.btn;
+    marauder.btn.setAttribute('aria-pressed', 'false');
+    marauder.btn.addEventListener('click', () => this._setMarauderMode(!this._marauderMode));
 
     actions.createSpan({ cls: 'atlas-star-divider', attr: { 'aria-hidden': 'true' } });
 
@@ -2565,9 +2796,11 @@ class StarChartView extends obsidian.ItemView {
     addLegendRow('程序记忆', { color: '#73DACA' });
     addLegendRow('细金环', { ring: true, note: 'Atlas 记忆' });
     legendPanel.createEl('p', { text: '达到恒星亮度后统一显示金色。亮度是链接到这篇笔记的源笔记数，不代表猫猫调用次数。' });
+    legendPanel.createEl('h3', { text: '活点星图' });
+    legendPanel.createEl('p', { text: '琥珀虚线表示共享猫咖来源，菱形是来源出口。猫爪来自共创或维护记录；点线仅按笔记更新时间串联，不表示实际阅读顺序。实时高亮只说明关联线程活跃。' });
 
     const helpPanel = makePanel('help', '漫游星图');
-    for (const [what, how] of [['旋转视角', '拖拽'], ['缩放星群', '滚轮 / 双指'], ['打开笔记', '点击星体']]) {
+    for (const [what, how] of [['旋转视角', '拖拽'], ['缩放星群', '滚轮 / 双指'], ['显影密道', '单击星体'], ['打开笔记', '双击星体'], ['共创记录', '点「活点」']]) {
       const row = helpPanel.createDiv('atlas-star-help-row');
       row.createSpan({ text: what });
       row.createSpan({ text: how });
@@ -2584,6 +2817,7 @@ class StarChartView extends obsidian.ItemView {
       open.panel.hidden = true;
       open.btn.setAttribute('aria-expanded', 'false');
       this._openPanel = null;
+      this._syncInspectorVisibility?.();
       if (returnFocus) open.btn.focus();
     };
     const togglePanel = (key) => {
@@ -2594,6 +2828,7 @@ class StarChartView extends obsidian.ItemView {
       panel.hidden = false;
       btn.setAttribute('aria-expanded', 'true');
       this._openPanel = key;
+      this._syncInspectorVisibility?.();
       panel.focus({ preventScroll: true });
     };
     for (const [key, { btn, panel }] of Object.entries(panels)) {
@@ -2603,10 +2838,12 @@ class StarChartView extends obsidian.ItemView {
     }
     // Escape only while focus is inside this view, so other panes keep their own Escape.
     this._listen(root, 'keydown', (e) => {
-      if (e.key !== 'Escape' || !this._openPanel) return;
+      if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopPropagation();
-      closePanel(true);
+      if (this._openPanel) closePanel(true);
+      else if (this._selectedPath) this._clearStarSelection();
+      else if (this._catFilter) { this._catFilter = null; this._renderCatBar(); }
     });
     this._listen(document, 'pointerdown', (e) => {
       if (!this._openPanel) return;
@@ -2621,6 +2858,8 @@ class StarChartView extends obsidian.ItemView {
       if (!width) return;  // hidden/background leaf: keep classes until it is measured again
       root.classList.toggle('is-compact', width < 680);
       root.classList.toggle('is-narrow', width < 440);
+      root.classList.toggle('is-short', stage.getBoundingClientRect().height < 360);
+      this._syncInspectorVisibility?.();
     };
 
     // Obsidian floats its status bar over the window's bottom-right corner. When this pane sits
@@ -2667,9 +2906,19 @@ class StarChartView extends obsidian.ItemView {
 
     // Size the canvas backing store now, then follow the canvas' own box
     resize();
-    const resizeObs = new ResizeObserver(() => resize());
+    const resizeObs = new ResizeObserver(() => { resize(); applyWidth(root.getBoundingClientRect().width); this._syncLiveActivityPoll(); });
     resizeObs.observe(canvas);
     this._teardown.push(() => resizeObs.disconnect());
+    this._syncInspectorVisibility = () => {
+      const star = this._stars.find(s => s.file.path === this._selectedPath);
+      this._starInspector.hidden = !star || (this._selectionFromFocus && !star.passages.length && !star.footprints.length)
+        || (Boolean(this._openPanel) && (root.hasClass('is-compact') || root.hasClass('is-short')));
+    };
+    this._listen(document, 'visibilitychange', () => this._syncLiveActivityPoll());
+    const leafRef = this.plugin.app.workspace.on('active-leaf-change', () => this._syncLiveActivityPoll());
+    this._teardown.push(() => this.plugin.app.workspace.offref(leafRef));
+    this._renderCatBar();
+    if (focused) this._selectStar(focused.file.path, false, true);
 
     // ── Animation loop ──
     const ctx = canvas.getContext('2d');
@@ -2761,8 +3010,8 @@ class StarChartView extends obsidian.ItemView {
       // ── Draw stars ──
       for (const p of projected) {
         const s = this._stars[p.i];
-        const isHovered = p.i === this._hoveredIdx || s.file.path === this._focusPath;
-        const dimFactor = p.match ? 1 : 0.14;
+        const isHovered = p.i === this._hoveredIdx || s.file.path === this._selectedPath;
+        const dimFactor = p.match ? this._selectedPath && !this._selectionPaths?.has(s.file.path) ? 0.24 : 1 : 0.14;
         const twinkle = 0.82 + 0.18 * Math.sin(this._time * s.twinkleSpeed + s.twinkleOffset);
         const baseR = this._starBaseRadius(s.backlinks);
         const r = baseR * p.scale * twinkle * (isHovered ? 1.55 : 1);
@@ -2840,10 +3089,368 @@ class StarChartView extends obsidian.ItemView {
           ctx.lineWidth = 1;
         }
       }
+      this._drawMarauder(ctx, projByIdx, W, H);
     };
 
     canvas.style.cursor = 'grab';
     render();
+  }
+
+  refresh() {
+    if (!this._chartRoot?.isConnected) return;
+    const changed = this._dataClient !== this.plugin.cafeClient;
+    if (changed || !this.plugin.isCafeConnected) {
+      this._stopLiveActivityPoll();
+      this._selectGeneration++;
+      this._citationStates.clear();
+      this._marauderMode = false;
+      this._catFilter = null;
+    }
+    this._dataClient = this.plugin.cafeClient;
+    this._refreshStarRecords();
+    this._syncMarauderButton();
+    this._syncLiveActivityPoll();
+  }
+
+  _refreshStarRecords() {
+    if (!this._allStarItems) return;
+    const client = this.plugin.cafeClient;
+    const byPath = new Map();
+    for (const s of this._allStarItems) {
+      const input = { file: s.file, note: s.note, frontmatter: s.cache?.frontmatter || {}, client,
+        settings: this.plugin.settings, liveCatsByThread: this._liveCatsByThread };
+      s.passages = collectStarPassages(input);
+      s.footprints = collectStarFootprints(input);
+      byPath.set(s.file.path, s);
+    }
+    for (const s of this._stars) {
+      const original = byPath.get(s.file.path);
+      if (original) { s.passages = original.passages; s.footprints = original.footprints; }
+    }
+    this._marauderIndex = buildMarauderIndex(this._allStarItems, this._stars);
+    this._updateSelectedRelations();
+    this._renderCatBar();
+    this._renderStarInspector();
+  }
+
+  _updateSelectedRelations() {
+    const path = this._selectedPath;
+    this._selectionPaths = new Set(path ? [path, ...this._marauderIndex.peers.get(path).map(p => p.path)] : []);
+    this._selectedEdges = path ? this._marauderIndex.edgesFor(path) : [];
+  }
+
+  _selectStar(path, verify = true, fromFocus = false) {
+    if (!this._stars.some(s => s.file.path === path)) return;
+    const generation = ++this._selectGeneration;
+    this._selectedPath = path;
+    this._selectionFromFocus = fromFocus;
+    this._paused = true;
+    this._syncStarPause?.();
+    this._updateSelectedRelations();
+    this._renderStarInspector();
+    if (verify) this._verifyStarCitations(generation);
+  }
+
+  _clearStarSelection() {
+    this._selectGeneration++;
+    this._selectedPath = null;
+    this._focusPath = null;
+    this._satellitePos = [];
+    this._hoveredSatellite = null;
+    this._updateSelectedRelations();
+    this._renderStarInspector();
+  }
+
+  _syncMarauderButton() {
+    this._marauderButton?.setAttribute('aria-pressed', String(this._marauderMode));
+    this._marauderButton?.setAttribute('aria-label', this._marauderMode ? '收起活点显影' : '开启活点显影');
+  }
+
+  _setMarauderMode(on) {
+    this._marauderMode = on;
+    if (!on) { this._catFilter = null; this._stopLiveActivityPoll(); }
+    this._syncMarauderButton();
+    this._refreshStarRecords();
+    this._syncLiveActivityPoll();
+  }
+
+  _renderCatBar() {
+    if (!this._catBar?.isConnected) return;
+    const active = this._catBar.ownerDocument.activeElement;
+    const focusedCat = this._catBar.contains(active) ? active.dataset.catKey : undefined;
+    this._catBar.empty();
+    this._catBar.hidden = !this._marauderMode;
+    this._catBar.toggleClass('with-scene-hint', this._filter !== 'all');
+    if (!this._marauderMode) return;
+    const cats = this._marauderIndex.cats;
+    if (!cats.length) { this._catBar.setText('活点显影 · 暂无共创或维护记录'); return; }
+    for (const cat of [{ catKey: null, name: '全部' }, ...cats]) {
+      const button = this._catBar.createEl('button', { cls: 'atlas-star-cat-pill', text: cat.name,
+        attr: { 'aria-pressed': String(this._catFilter === cat.catKey), 'data-cat-key': cat.catKey || 'all' } });
+      if (cat.color) button.style.setProperty('--cat-color', cat.color);
+      button.addEventListener('click', () => { this._catFilter = cat.catKey; this._renderCatBar(); });
+    }
+    if (focusedCat !== undefined) [...this._catBar.querySelectorAll('button')].find(b => b.dataset.catKey === focusedCat)?.focus({ preventScroll: true });
+  }
+
+  _renderStarInspector() {
+    const card = this._starInspector;
+    if (!card?.isConnected) return;
+    const active = card.ownerDocument.activeElement;
+    const focusedAction = card.contains(active) ? active.dataset.starAction : undefined;
+    const scroll = card.scrollTop;
+    card.empty();
+    this._citationLabels = new Map();
+    const star = this._stars.find(s => s.file.path === this._selectedPath);
+    if (!star) { card.hidden = true; return; }
+    const heading = card.createDiv('atlas-star-inspector-head');
+    const title = heading.createDiv('atlas-star-inspector-title');
+    title.createEl('h3', { text: star.note?.title || star.file.basename });
+    title.createEl('small', { text: '被 ' + star.backlinks + ' 篇链接 · ' + (MEMORY_TYPE_COLORS[star.note?.memory_type]?.label || '普通笔记') });
+    const open = heading.createEl('button', { text: '打开笔记', cls: 'atlas-star-inspector-open', attr: { 'data-star-action': 'open' } });
+    open.addEventListener('click', () => this.plugin.app.workspace.getLeaf(false).openFile(star.file));
+    const close = heading.createEl('button', { cls: 'atlas-star-inspector-close', attr: { 'aria-label': '收起密道与足迹', 'data-star-action': 'close' } });
+    setAtlasIcon(close, ['x']);
+    close.addEventListener('click', () => this._clearStarSelection());
+    const section = title => {
+      const el = card.createDiv('atlas-star-inspector-section');
+      el.createEl('h4', { text: title });
+      return el;
+    };
+    if (star.passages.length) {
+      const group = section('猫咖密道');
+      for (const p of star.passages) {
+        const row = group.createDiv('atlas-star-passage-row');
+        row.dataset.passageId = p.id;
+        row.createEl('small', { text: p.sublabel, cls: 'atlas-star-passage-kind' });
+        row.createDiv({ text: p.label, cls: 'atlas-star-passage-label' });
+        if (!p.actionable) row.createEl('small', { text: p.readonlyReason });
+        if (p.citation) {
+          const state = row.createEl('span', { cls: 'atlas-star-citation-state' });
+          this._citationLabels.set(p.id, state);
+          this._paintStarCitation(p.id);
+        }
+        const action = row.createEl('button', { text: p.citation ? '预览' : '回到对话', cls: 'atlas-star-passage-action', attr: { 'data-star-action': 'passage:' + p.id } });
+        action.disabled = !p.actionable;
+        action.addEventListener('click', () => this._openStarPassage(p));
+        if (p.threadId && p.actionable && this.plugin.cafeClient?.threads.some(t => t.id === p.threadId)) {
+          const hub = row.createEl('button', { text: '在 Hub 打开', cls: 'atlas-star-passage-action', attr: { 'data-star-action': 'hub:' + p.id } });
+          const client = this.plugin.cafeClient;
+          hub.addEventListener('click', () => {
+            if (client === this.plugin.cafeClient && client.connected && p.cafe === client.baseUrl) {
+              window.open(client.getHubUrl() + '/thread/' + encodeURIComponent(p.threadId));
+            }
+          });
+        }
+      }
+    }
+    const peers = this._marauderIndex.peers.get(star.file.path);
+    if (peers.length) {
+      const group = section('共享密道的关联笔记 · ' + peers.length);
+      for (const peer of peers) {
+        const row = group.createDiv('atlas-star-peer-row');
+        row.createDiv({ text: peer.title });
+        row.createEl('small', { text: '共享 ' + peer.keys.length + ' 个已记录来源' });
+        const focus = row.createEl('button', { text: '聚焦此星', attr: { 'data-star-action': 'peer:' + peer.path } });
+        focus.addEventListener('click', () => {
+          const visible = this._stars.find(s => s.file.path === peer.path);
+          if (visible) {
+            this._rotY = Math.atan2(visible.x, visible.z);
+            this._rotX = Math.atan2(visible.y, visible.x * Math.sin(this._rotY) + visible.z * Math.cos(this._rotY));
+            this._selectStar(peer.path);
+          } else this.plugin.openStarChart({ focusPath: peer.path });
+        });
+        const open = row.createEl('button', { text: '打开', attr: { 'data-star-action': 'peer-open:' + peer.path } });
+        open.addEventListener('click', () => {
+          const file = this.plugin.app.vault.getAbstractFileByPath(peer.path);
+          if (file) this.plugin.app.workspace.getLeaf(false).openFile(file);
+        });
+      }
+    }
+    if (star.footprints.length) {
+      const group = section('共创与关联线程记录');
+      for (const f of star.footprints) {
+        const button = group.createEl('button', { cls: 'atlas-star-footprint-row', attr: { 'data-star-action': 'cat:' + f.catKey } });
+        button.style.setProperty('--cat-color', f.color);
+        button.createSpan({ text: f.name });
+        const sources = f.sources.map(s => ({ live: '关联线程活跃', author: '共创作者', maintainer: '维护记录', revision: '参与改稿' })[s]);
+        button.createEl('small', { text: sources.join(' · ') + ' · 笔记更新 ' + new Date(f.mtime).toLocaleDateString() });
+        button.addEventListener('click', () => { this._marauderMode = true; this._catFilter = f.catKey; this._setMarauderMode(true); });
+      }
+    }
+    if (!star.passages.length && !star.footprints.length) card.createEl('p', { text: '此星暂无猫咖密道或共创记录' });
+    card.scrollTop = scroll;
+    this._syncInspectorVisibility?.();
+    if (!card.hidden && focusedAction !== undefined) [...card.querySelectorAll('button')].find(b => b.dataset.starAction === focusedAction && !b.disabled)?.focus({ preventScroll: true });
+  }
+
+  _paintStarCitation(id) {
+    const state = this._citationStates.get(id)?.state;
+    const el = this._citationLabels?.get(id);
+    if (!el) return;
+    el.textContent = state ? CITATION_STATES[state] || CITATION_STATES.unknown : '尚未核验';
+    el.toggleClass('is-changed', state === 'updated' || state === 'gone');
+  }
+
+  async _verifyStarCitations(generation) {
+    const client = this.plugin.cafeClient;
+    const star = this._stars.find(s => s.file.path === this._selectedPath);
+    const citations = (star?.passages || []).filter(p => p.citation && p.actionable && p.cafe === client?.baseUrl);
+    // One selected star's statuses, bounded in flight. Switching selection retires the remaining queue.
+    let next = 0;
+    const worker = async () => {
+      while (next < citations.length && generation === this._selectGeneration && client === this.plugin.cafeClient && this._chartCanvas?.isConnected) {
+        const p = citations[next++];
+        this._citationStates.set(p.id, { state: 'checking' });
+        this._paintStarCitation(p.id);
+        let result;
+        try { result = await this.plugin.citationStanding(p.citation); } catch { result = { state: 'unknown' }; }
+        if (generation !== this._selectGeneration || client !== this.plugin.cafeClient || !this._chartCanvas?.isConnected) return;
+        this._citationStates.set(p.id, result);
+        this._paintStarCitation(p.id);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, citations.length) }, worker));
+  }
+
+  _openStarPassage(p) {
+    const client = this.plugin.cafeClient;
+    if (!p.actionable || !client?.connected || p.cafe !== client.baseUrl || client !== this._dataClient) {
+      new obsidian.Notice(p.readonlyReason || '猫咖连接已变化，请重新选中这颗星');
+      return;
+    }
+    if (p.citation) new CafeMemoryModal(this.app, this.plugin, { show: p.citation }).open();
+    else if (client.threads.some(t => t.id === p.threadId)) this.plugin.openCafeChat({ threadId: p.threadId, client });
+  }
+
+  _liveActivityEligible() {
+    const canvas = this._chartCanvas;
+    return Boolean(this._marauderMode && this.plugin.isCafeConnected && this.plugin.cafeClient === this._dataClient
+      && canvas?.isConnected && !canvas.ownerDocument.hidden && canvas.getClientRects().length);
+  }
+
+  _stopLiveActivityPoll() {
+    clearTimeout(this._livePollTimer);
+    this._livePollTimer = null;
+    this._livePollRun = null;
+    if (this._liveCatsByThread?.size) { this._liveCatsByThread.clear(); this._refreshStarRecords(); }
+  }
+
+  _syncLiveActivityPoll() {
+    if (!this._liveActivityEligible()) { this._stopLiveActivityPoll(); return; }
+    if (this._livePollRun) return;
+    const run = this._livePollRun = {};
+    const tick = async () => {
+      if (this._livePollRun !== run) return;
+      if (!this._liveActivityEligible()) { this._stopLiveActivityPoll(); return; }
+      const client = this.plugin.cafeClient;
+      const allowed = new Set(this._stars.flatMap(s => s.passages.filter(p => p.actionable && p.cafe === client.baseUrl
+        && client.threads.some(t => t.id === p.threadId)).map(p => p.threadId)));
+      if (allowed.size && !this._liveRequest) {
+        const request = this._liveRequest = {};
+        try {
+          const executions = await client.fetchProjectActiveExecutions([...allowed][0]);
+          if (this._livePollRun !== run || client !== this.plugin.cafeClient || !this._liveActivityEligible()) return;
+          const live = new Map();
+          for (const e of executions) if (allowed.has(e.threadId)) {
+            if (!live.has(e.threadId)) live.set(e.threadId, new Set());
+            live.get(e.threadId).add(e.catId);
+          }
+          this._liveCatsByThread = live;
+          this._refreshStarRecords();
+        } finally { if (this._liveRequest === request) this._liveRequest = null; }
+      }
+      if (this._livePollRun === run) this._livePollTimer = setTimeout(tick, 10000);
+    };
+    tick();
+  }
+
+  _drawMarauder(ctx, projected, W, H) {
+    if (!this._marauderMode && !this._selectedPath) { this._satellitePos = []; return; }
+    const byPath = new Map(this._stars.map((s, i) => [s.file.path, projected[i]]));
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.lineDashOffset = reduced ? 0 : -this._time * 0.18;
+    const edges = this._selectedPath ? this._selectedEdges : this._marauderIndex.globalEdges;
+    for (const edge of edges) {
+      const a = byPath.get(edge.a), b = byPath.get(edge.b);
+      if (!a?.match || !b?.match || a.scale <= 0 || b.scale <= 0) continue;
+      const dx = b.sx - a.sx, dy = b.sy - a.sy, length = Math.hypot(dx, dy) || 1;
+      ctx.beginPath(); ctx.moveTo(a.sx, a.sy);
+      ctx.quadraticCurveTo((a.sx + b.sx) / 2 - dy / length * 18, (a.sy + b.sy) / 2 + dx / length * 18, b.sx, b.sy);
+      ctx.strokeStyle = this._selectedPath ? 'rgba(230,188,122,0.72)' : 'rgba(230,188,122,0.18)';
+      ctx.lineWidth = this._selectedPath ? 1.4 : 1; ctx.stroke();
+    }
+    ctx.setLineDash([1, 11]);
+    ctx.lineDashOffset = 0;
+    if (this._marauderMode) for (const trail of this._marauderIndex.trails) {
+      if (this._catFilter && this._catFilter !== trail.catKey) continue;
+      for (let i = 1; i < trail.paths.length; i++) {
+        const a = byPath.get(trail.paths[i - 1]), b = byPath.get(trail.paths[i]);
+        if (!a?.match || !b?.match || a.scale <= 0 || b.scale <= 0) continue;
+        ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy);
+        ctx.strokeStyle = this._hexToRGBA(trail.color, this._catFilter ? 0.58 : 0.28);
+        ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.stroke();
+      }
+    }
+    for (let i = 0; i < this._stars.length; i++) {
+      const s = this._stars[i], p = projected[i];
+      if (!p?.match || p.scale <= 0 || (!this._marauderMode && s.file.path !== this._selectedPath)) continue;
+      const radius = this._starBaseRadius(s.backlinks) * p.scale;
+      if (this._marauderMode && s.passages.length) {
+        ctx.setLineDash([2.5, 3]); ctx.beginPath(); ctx.arc(p.sx, p.sy, Math.max(5, radius + 4.2), 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(230,188,122,0.55)'; ctx.lineWidth = 1; ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      const footprints = s.footprints.filter(f => !this._catFilter || f.catKey === this._catFilter).slice(0, 2);
+      footprints.forEach((f, j) => {
+        const x = p.sx + radius + 10 + j * 12, y = p.sy - radius - 7;
+        this._drawPawPrint(ctx, x, y, 6, f.color, f.freshness * 0.85);
+        if (f.live) {
+          const pulse = reduced ? 0.5 : (1 + Math.sin(this._time * 0.048)) / 2;
+          ctx.beginPath(); ctx.arc(x, y, 7 + pulse * 4, 0, Math.PI * 2);
+          ctx.strokeStyle = this._hexToRGBA(f.color, 0.15 + pulse * 0.45); ctx.lineWidth = 1; ctx.stroke();
+        }
+      });
+    }
+    this._satellitePos = [];
+    const selected = this._stars.find(s => s.file.path === this._selectedPath);
+    const center = selected && byPath.get(selected.file.path);
+    if (center?.match && center.scale > 0) {
+      const items = selected.passages.slice(0, 6);
+      items.forEach((passage, i) => {
+        const angle = Math.PI + (i + 0.5) * Math.PI / items.length;
+        const label = [...passage.label].slice(0, 12).join('');
+        ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+        const halfLabel = Math.min(W / 3, ctx.measureText(label).width / 2 + 6);
+        const x = Math.max(halfLabel + 8, Math.min(W - halfLabel - 8, center.sx + Math.cos(angle) * (54 + (i % 2) * 14)));
+        const y = Math.max(22, Math.min(H - 22, center.sy + Math.sin(angle) * (54 + (i % 2) * 14)));
+        const color = passage.type === 'matter' ? '#7AA2F7' : passage.citation ? '#E6BC7A' : '#C87D55';
+        ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(center.sx, center.sy); ctx.lineTo(x, y);
+        ctx.strokeStyle = this._hexToRGBA(color, 0.6); ctx.lineWidth = 1; ctx.stroke();
+        ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(x, y - 5.5); ctx.lineTo(x + 5.5, y);
+        ctx.lineTo(x, y + 5.5); ctx.lineTo(x - 5.5, y); ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+        const state = this._citationStates.get(passage.id)?.state;
+        if (state === 'updated' || state === 'gone') { ctx.beginPath(); ctx.arc(x + 5, y - 5, 3, 0, Math.PI * 2); ctx.fillStyle = '#E07A5F'; ctx.fill(); }
+        ctx.fillStyle = 'rgba(14,11,16,0.9)'; ctx.fillRect(x - halfLabel, y + 9, halfLabel * 2, 15);
+        ctx.textAlign = 'center'; ctx.fillStyle = '#E6DCCF'; ctx.fillText(label, x, y + 20, halfLabel * 2 - 4);
+        this._satellitePos.push({ sx: x, sy: y, passage });
+      });
+      if (selected.passages.length > items.length) {
+        ctx.fillStyle = '#E6BC7A'; ctx.textAlign = 'center'; ctx.fillText('+' + (selected.passages.length - items.length), center.sx, center.sy + 28);
+      }
+    }
+    ctx.restore();
+  }
+
+  _drawPawPrint(ctx, x, y, size, color, alpha) {
+    ctx.save(); ctx.fillStyle = this._hexToRGBA(color, alpha);
+    ctx.beginPath(); ctx.ellipse(x, y + size * 0.15, size * 0.48, size * 0.36, 0, 0, Math.PI * 2); ctx.fill();
+    for (const dx of [-0.5, 0, 0.5]) {
+      ctx.beginPath(); ctx.arc(x + dx * size, y - size * (dx ? 0.42 : 0.64), size * 0.21, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
   }
 
   // ── Canvas drawing helpers ──
@@ -5616,7 +6223,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
   /** `{ companionsOnly: true }` when only who is summoned changed: the chat then refreshes its strip in place. */
   refreshAllViews(opts = {}) {
-    for (const type of [VIEW_TYPE_PROVENANCE_LENS, VIEW_TYPE_CAFE_CHAT]) {
+    for (const type of [VIEW_TYPE_PROVENANCE_LENS, VIEW_TYPE_CAFE_CHAT, VIEW_TYPE_STAR_CHART]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
         leaf.view?.refresh?.(opts);
       }
@@ -5911,18 +6518,22 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
   async openStarChart({ focusPath = null } = {}) {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_STAR_CHART);
     if (existing.length) {
-      this.app.workspace.revealLeaf(existing[0]);
+      await this.app.workspace.revealLeaf(existing[0]);
       const view = existing[0].view;
       if (view._focusPath && !focusPath) view._paused = false;
       view._focusPath = focusPath;
       await existing[0].view?.onOpen?.();
+      if (focusPath) view._selectStar?.(focusPath, true, true);
+      view._chartCanvas?.focus({ preventScroll: true });
       return;
     }
     const leaf = this.app.workspace.getLeaf(true);
     if (leaf) {
       await leaf.setViewState({ type: VIEW_TYPE_STAR_CHART, active: true });
       if (focusPath) { leaf.view._focusPath = focusPath; await leaf.view.onOpen(); }
-      this.app.workspace.revealLeaf(leaf);
+      await this.app.workspace.revealLeaf(leaf);
+      if (focusPath) leaf.view._selectStar?.(focusPath, true, true);
+      leaf.view._chartCanvas?.focus({ preventScroll: true });
     }
   }
 

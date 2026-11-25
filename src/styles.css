@@ -2346,7 +2346,8 @@ body.theme-dark {
 /* Lens v2 · Quiet Precision: native neutral surfaces, plugin metadata kept quiet, the document's own words in the quote slot. */
 /* Hide 0.0.6 document residue as soon as this stylesheet is active, even before its JS is reloaded. */
 .atlas-reading-banner { display: none !important; }
-.atlas-lens-v2 { overflow-x: hidden; padding: 0 0 24px; background: var(--atlas-bg-panel); }
+/* Match the host's view-content specificity, scoped to this Lens only. */
+.workspace-leaf-content .view-content.atlas-lens-v2 { overflow-x: hidden; padding: 0 0 44px; background: var(--atlas-bg-panel); }
 .atlas-lens-v2 > .atlas-topbar { flex-wrap: wrap; }
 .atlas-lens-v2 [hidden] { display: none !important; }
 
@@ -2675,3 +2676,53 @@ button.atlas-chat-stop-pill:disabled {
 .atlas-chat-run-dot { animation: atlas-run-pulse 1.6s ease-in-out infinite; }
 @keyframes atlas-run-pulse { 50% { opacity: 0.45; } }
 @media (prefers-reduced-motion: reduce) { .atlas-chat-run-dot { animation: none; } }
+/* Marauder overlays stay inside the chart stage and never inherit the host's white button surfaces. */
+.atlas-star-chart-container .atlas-star-action[aria-pressed="true"] {
+  color: #E6BC7A;
+  background: rgba(230, 188, 122, 0.13);
+  border-color: rgba(230, 188, 122, 0.45);
+}
+.atlas-star-chart-container .atlas-star-cat-bar {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow-x: auto;
+  max-width: calc(100% - 32px);
+  padding: 2px 0 5px;
+  color: #BFB1A4;
+  font-size: 11px;
+  scrollbar-width: thin;
+}
+.atlas-star-chart-container .atlas-star-cat-bar.with-scene-hint { top: 40px; }
+.atlas-star-chart-container .atlas-star-cat-bar[hidden] { display: none !important; }
+.atlas-star-chart-container .atlas-star-cat-bar button {
+  appearance: none;
+  box-shadow: none;
+  transform: none;
+  margin: 0;
+  min-width: 0;
+  min-height: 25px;
+  height: auto;
+  padding: 3px 8px;
+  color: #E9DACC;
+  background: rgba(230, 188, 122, 0.07);
+  border: 1px solid #4B4144;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.atlas-star-chart-container .atlas-star-cat-bar button { flex: none; border-radius: 999px; }
+.atlas-star-chart-container .atlas-star-cat-pill[aria-pressed="true"] {
+  border-color: var(--cat-color, #E6BC7A);
+  color: var(--cat-color, #E6BC7A);
+  background: rgba(230, 188, 122, 0.13);
+}
+
+.atlas-star-chart-container .atlas-star-cat-bar button:focus-visible { outline: 2px solid #E6BC7A; outline-offset: 2px; }

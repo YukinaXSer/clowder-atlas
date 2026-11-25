@@ -1,3 +1,15 @@
+# 0.0.11 — Marauder star chart (local trial candidate)
+
+- Single-click a star to clear the field and unfold a dual-ring astrolabe, with flowing source filaments, outer shared-memory peers and coauthor ribbons. Source diamonds preview originals; double-click opens the note. Blank space or Escape clears the selection; Lens focus selects and centers the note.
+- The explicit 活点 toggle adds source rings, bounded resonance arcs, contributor paws and trails ordered by note modification time. Cat pills filter contributors. Live markers show only bound conversation activity, never inferred file reads.
+- Opening the chart adds no network requests. Selection checks only the selected note's citations; visible, connected 活点 mode reads at most one project execution projection per ten seconds. Hiding, closing, disconnecting and switching Cafes retire the loop and discard late responses.
+- Shared-source keys include the originating Cafe and coordinate type. Unknown origins remain read-only; low-link sourced notes have reserved chart slots without artificial brightness. Large shared discussions have bounded visual edges and canvas pages for every shared note.
+- No details card is used. Midnight labels use collision-aware soft text; explicit map mode adds an ink ripple, cached parchment grain, alternating pawprints and swallowtail name ribbons. Narrow and short layouts keep actions separate; reduced-motion preferences produce a static canvas.
+
+- Atlas status is now hidden by default. An immediate settings toggle enables the compact `Atlas 1/3` / offline `Atlas` label, with full counts on hover. Lens bottom spacing overrides the host padding within the Lens only; plugin CSS leaves the global status bar untouched.
+
+Candidate validation and independent review receipts are retained with the local trial. Publication requires a new operator decision after trial; no settings migration or external dependency is added.
+
 # 0.0.10 — stop companion replies
 
 - Stop one companion from its reply bubble, or stop the current conversation from the run bar above the input. Conversation stop also clears pending replies before canceling live work.

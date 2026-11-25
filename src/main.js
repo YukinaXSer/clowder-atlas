@@ -55,6 +55,7 @@ const DEFAULT_SETTINGS = {
   atlasDir: ATLAS_DIR_DEFAULT,
   canvasDir: '_atlas/canvases',
   enableGraphColors: true,
+  showStatusBar: false,
   catCafeEnabled: false,
   catCafeAddress: 'http://localhost:3004',
   defaultMemoryType: 'semantic',
@@ -881,6 +882,17 @@ class CatCafeClient {
       // This endpoint returns the whole PROJECT. Neither its other threads nor another principal are stop capabilities.
       return data.executions.filter(e => e.threadId === threadId);
     } catch (err) { if (this._missingRoute(err)) return null; throw err; }
+  }
+
+  /** Read-only project projection for an explicitly enabled, visible Marauder chart. No file paths are sent. */
+  async fetchProjectActiveExecutions(anchorThreadId) {
+    if (!this.connected || this.destroyed || !this.threads.some(t => t.id === anchorThreadId)) return [];
+    try {
+      const data = await this._sessionRequest('/api/threads/' + encodeURIComponent(anchorThreadId) + '/executions/active');
+      return (Array.isArray(data?.executions) ? data.executions : [])
+        .filter(e => typeof e.threadId === 'string' && typeof e.catId === 'string' && e.kind === 'live_invocation')
+        .map(({ threadId, catId, kind }) => ({ threadId, catId, kind }));
+    } catch { return []; }
   }
 
   async readReplyActivity(threadId) {
@@ -1954,6 +1966,17 @@ class ClowderAtlasSettingTab extends obsidian.PluginSettingTab {
     const themeNote = containerEl.createEl('p', { cls: 'setting-item-description' });
     themeNote.textContent = '深色/浅色主题 100% 跟随 Obsidian，无需手动开关';
 
+    new obsidian.Setting(containerEl)
+      .setName('在底部状态栏显示 Atlas 状态')
+      .setDesc('默认不占用底栏；开启后显示短标，悬停查看完整记忆与伴读计数。')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.showStatusBar === true)
+        .onChange(async (value) => {
+          this.plugin.settings.showStatusBar = value;
+          this.plugin.updateStatusBar();
+          await this.plugin.saveSettings();
+        }));
+
     // ── Advanced ──
     containerEl.createEl('h3', { text: '高级' });
 
@@ -1971,6 +1994,212 @@ class ClowderAtlasSettingTab extends obsidian.PluginSettingTab {
 // ═══════════════════════════════════════════════
 // Star Chart View — constellation-style memory atlas
 // ═══════════════════════════════════════════════
+// Marauder data is local provenance, never a record of who actually read a file. Unknown origins stay unlinked.
+function starCoordinate(value) {
+  return typeof value === 'string' && value.trim() && !value.includes('{{') ? value.trim() : '';
+}
+
+function collectStarPassages({ file, note = null, frontmatter = {}, client, settings = {} }) {
+  const n = note || frontmatter;
+  const entries = new Map();
+  const connected = Boolean(client?.connected);
+  const threadKnown = id => Boolean(client?.threads?.some(t => t.id === id));
+  const add = ({ type, ref, cafe = '', threadId = null, citation = null, label, sublabel }) => {
+    ref = starCoordinate(ref);
+    if (!ref) return;
+    const scope = starCoordinate(cafe);
+    const originMatches = Boolean(scope && scope === client?.baseUrl);
+    const groupType = type === 'matter' ? 'matter' : 'thread';
+    const coordinate = type === 'matter' ? citationCoordinates('matter', ref)?.matterId : threadId;
+    const key = scope && coordinate ? JSON.stringify([scope, groupType, coordinate]) : null;
+    const id = JSON.stringify([scope, type, ref]);
+    const actionable = connected && originMatches && (Boolean(citation) || threadKnown(threadId));
+    const readonlyReason = !scope ? '未记录来源猫咖，仅保留坐标'
+      : !connected ? '猫咖未连接' : !originMatches ? '来自另一台猫咖'
+      : !citation && !threadKnown(threadId) ? '当前猫咖未列出这个对话' : '';
+    if (!entries.has(id)) entries.set(id, { id, key, type, ref, cafe: scope, threadId, citation, label: label || ref, sublabel, actionable, readonlyReason });
+  };
+  for (const c of cafeEvidence(n)) {
+    const at = citationCoordinates(c.type, c.ref);
+    add({ type: c.type, ref: c.ref, cafe: c.cafe, threadId: at.threadId || null, citation: c,
+      label: c.label, sublabel: c.type === 'matter' ? '事情记忆' : '跨线对话' });
+  }
+  const source = starCoordinate(n?.atlas_source_ref || frontmatter.atlas_source_ref);
+  if (source) add({ type: 'thread', ref: source, threadId: source,
+    cafe: (n?.atlas_source || frontmatter.atlas_source) === 'clowder_ai' ? n?.atlas_source_cafe || frontmatter.atlas_source_cafe : '',
+    label: source, sublabel: '原研讨' });
+  for (const r of [...Object.values(settings.revisionTargets || {}), ...Object.values(settings.passageRequests || {})]) {
+    if (!r?.cafe || !r.messageIds?.length || !(r.path === file.path || r.passages?.some(p => p.path === file.path))) continue;
+    add({ type: 'thread', ref: r.threadId, threadId: r.threadId, cafe: r.cafe,
+      label: client?.baseUrl === r.cafe ? client.threads?.find(t => t.id === r.threadId)?.title : r.threadId, sublabel: '相关研讨' });
+  }
+  const legacy = starCoordinate(frontmatter.source_thread);
+  if (/^thread_[a-zA-Z0-9_-]+$/.test(legacy) && ![...entries.values()].some(e => e.threadId === legacy)) {
+    add({ type: 'thread', ref: legacy, threadId: legacy, sublabel: '出处坐标' });
+  }
+  const order = { matter: 0, message: 1, 原研讨: 2, 相关研讨: 3, 出处坐标: 4 };
+  return [...entries.values()].sort((a, b) => (order[a.type] ?? order[a.sublabel] ?? 5) - (order[b.type] ?? order[b.sublabel] ?? 5));
+}
+
+function resolveFootprintCat(raw, client) {
+  const value = typeof raw === 'object' && raw ? raw.catId || raw.id || raw.name || raw.nickname : raw;
+  const name = starCoordinate(value).replace(/^@/, '').split(/\s*[/（(]\s*/)[0].trim();
+  const lower = name.toLowerCase();
+  if (!name || ['co-creator', 'operator', 'owner', 'user', '用户', '大当家'].includes(lower)) return null;
+  const norm = s => String(s || '').trim().replace(/^@/, '').toLowerCase();
+  const cat = client?.cats?.find(c => [c.id, c.nickname, c.name, c.displayName].some(v => v && norm(v) === lower));
+  const profile = SpecParser.resolveCatProfile(cat || name);
+  const knownProfile = profile && (Object.entries(CAT_COLORS).some(([key, p]) => p === profile
+    && [key, p.name, p.nickname].some(v => v && norm(v) === lower)) || /^cat-[a-z0-9]+$/i.test(name));
+  const profileKey = knownProfile ? Object.keys(CAT_COLORS).find(k => CAT_COLORS[k] === profile) : null;
+  const palette = ['#E6BC7A', '#8AB4F8', '#73DACA', '#E07A5F', '#C39BD3', '#95C47D'];
+  let hash = 0;
+  for (const ch of lower) hash = (Math.imul(hash, 31) + ch.codePointAt(0)) >>> 0;
+  const proposed = cat?.color?.primary || (typeof cat?.color === 'string' ? cat.color : '') || (knownProfile ? profile.color : '');
+  return { catKey: cat?.id || (profileKey ? 'profile:' + profileKey : 'name:' + lower),
+    name: cat?.nickname || (knownProfile ? profile.nickname : '') || cat?.displayName || cat?.name || name,
+    color: /^#[a-f0-9]{6}$/i.test(proposed || '') ? proposed : palette[hash % palette.length], known: Boolean(cat || knownProfile) };
+}
+
+function collectStarFootprints({ file, note = null, frontmatter = {}, client, settings = {}, liveCatsByThread = new Map(), now = Date.now() }) {
+  const result = new Map(), n = note || frontmatter;
+  const mtime = Number(file.stat?.mtime) || 0;
+  const days = Math.max(0, now - mtime) / 86400000;
+  const add = (raw, sourceKind, knownOnly = false) => {
+    const cat = resolveFootprintCat(raw, client);
+    if (!cat || (knownOnly && !cat.known)) return;
+    const old = result.get(cat.catKey);
+    if (old) { if (!old.sources.includes(sourceKind)) old.sources.push(sourceKind); old.live ||= sourceKind === 'live'; return; }
+    result.set(cat.catKey, { ...cat, sourceKind, sources: [sourceKind], live: sourceKind === 'live', mtime,
+      freshness: days <= 7 ? 1 : days <= 30 ? 0.65 : 0.38 });
+  };
+  const list = value => Array.isArray(value) ? value : value ? [value] : [];
+  for (const raw of [...list(n?.atlas_authors), ...list(n?.atlas_author_details)]) add(raw, 'author');
+  for (const raw of [...list(frontmatter.maintainer), ...list(frontmatter.author)]) add(raw, 'maintainer', true);
+  for (const r of Object.values(settings.revisionTargets || {})) {
+    if (r?.cafe === client?.baseUrl && r?.path === file.path && r.messageIds?.length && r.catId) add(r.catId, 'revision', true);
+  }
+  for (const p of collectStarPassages({ file, note, frontmatter, client, settings })) {
+    if (!p.actionable || !p.threadId || p.cafe !== client?.baseUrl) continue;
+    for (const catId of liveCatsByThread.get(p.threadId) || []) add(catId, 'live');
+  }
+  return [...result.values()];
+}
+
+function selectChartStars(scored, { focusPath = null, limit = 80, passageReserve = 15 } = {}) {
+  const ranked = [...scored].sort((a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path));
+  const selected = [], paths = new Set();
+  const put = s => { if (s && !paths.has(s.file.path) && selected.length < limit) { selected.push(s); paths.add(s.file.path); } };
+  put(ranked.find(s => s.file.path === focusPath));
+  const top = new Set(ranked.filter(s => s.score > 0).slice(0, Math.max(0, limit - passageReserve)).map(s => s.file.path));
+  ranked.filter(s => s.passages?.length && !top.has(s.file.path))
+    .sort((a, b) => b.passages.length - a.passages.length || (b.file.stat?.mtime || 0) - (a.file.stat?.mtime || 0))
+    .slice(0, passageReserve).forEach(put);
+  ranked.filter(s => s.score > 0).forEach(put);
+  return selected;
+}
+
+function buildMarauderIndex(allItems, mainStars, { now = Date.now(), maxFullMeshPerKey = 12, maxStarEdges = 10 } = {}) {
+  const groups = new Map(), byPath = new Map(allItems.map(s => [s.file.path, s])), visible = new Set(mainStars.map(s => s.file.path));
+  for (const s of allItems) for (const p of s.passages || []) {
+    if (!p.key) continue;
+    if (!groups.has(p.key)) groups.set(p.key, new Set());
+    groups.get(p.key).add(s.file.path);
+  }
+  const globalEdges = [], seenEdges = new Set();
+  for (const [key, paths] of groups) {
+    const members = [...paths];
+    if (members.length > maxFullMeshPerKey) continue;
+    const shown = members.filter(p => visible.has(p));
+    for (let a = 0; a < shown.length; a++) for (let b = a + 1; b < shown.length; b++) {
+      const id = [shown[a], shown[b]].sort().join('\n');
+      if (!seenEdges.has(id) && globalEdges.length < 240) { seenEdges.add(id); globalEdges.push({ a: shown[a], b: shown[b], key }); }
+    }
+  }
+  const recent = (a, b) => (byPath.get(b.path).file.stat?.mtime || 0) - (byPath.get(a.path).file.stat?.mtime || 0)
+    || byPath.get(b.path).backlinks - byPath.get(a.path).backlinks;
+  // Keep an inverted source index, not all O(n squared) peer pairs for a vault-wide discussion.
+  const peers = { get(path) {
+    const map = new Map();
+    for (const passage of byPath.get(path)?.passages || []) {
+      for (const other of groups.get(passage.key) || []) {
+        if (other === path) continue;
+        if (!map.has(other)) map.set(other, { path: other, title: byPath.get(other).note?.title || byPath.get(other).file.basename, keys: [] });
+        if (!map.get(other).keys.includes(passage.key)) map.get(other).keys.push(passage.key);
+      }
+    }
+    return [...map.values()].sort(recent);
+  } };
+  const cats = new Map();
+  for (const s of mainStars) for (const f of s.footprints || []) {
+    if (!cats.has(f.catKey)) cats.set(f.catKey, { ...f, items: [] });
+    cats.get(f.catKey).items.push(s);
+  }
+  const anyRecent = allItems.some(s => now - (s.file.stat?.mtime || 0) <= 30 * 86400000);
+  const trails = [];
+  for (const cat of cats.values()) {
+    const ordered = cat.items.filter(s => !anyRecent || now - (s.file.stat?.mtime || 0) <= 30 * 86400000)
+      .sort((a, b) => (a.file.stat?.mtime || 0) - (b.file.stat?.mtime || 0)).slice(anyRecent ? -5 : -3);
+    if (ordered.length >= 2) trails.push({ catKey: cat.catKey, color: cat.color, paths: ordered.map(s => s.file.path) });
+  }
+  const edgesFor = path => {
+    const large = (byPath.get(path)?.passages || []).some(p => (groups.get(p.key)?.size || 0) > maxFullMeshPerKey);
+    return (peers.get(path) || []).filter(p => visible.has(p.path)).slice(0, Math.min(maxStarEdges, large ? 8 : maxStarEdges)).map(p => ({ a: path, b: p.path, key: p.keys[0] }));
+  };
+  return { groups, peers, globalEdges, edgesFor, trails, cats: [...cats.values()].map(({ items, ...cat }) => cat) };
+}
+
+function starPassageTitle(p, client) {
+  let label = p.label || '';
+  if (p.cafe === client?.baseUrl && p.threadId && !p.citation) label = client.threads?.find(t => t.id === p.threadId)?.title || label;
+  label = label.replace(/(?:thread|matter|message)_[a-zA-Z0-9_-]+/g, '').replace(/^[\s·:#-]+|[\s·:#-]+$/g, '');
+  if (!label || label === p.ref) return p.type === 'matter' ? '事情记忆' : p.type === 'message' ? '对话原话' : p.actionable ? '关联研讨' : '旧研讨出处';
+  return label;
+}
+
+function starRectOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+/** Responsive chart-space stations; pages retain access to every recorded source/peer without a details panel. */
+function starOrbitLayout({ width: W, height: H, passages = [], peers = [], cats = [], sourcePage = 0, peerPage = 0, catPage = 0 }) {
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const x = W / 2, y = H < 320 ? clamp(H * (W < 440 ? 0.31 : 0.42), 60, H - 120) : clamp(H * 0.5 + 8, 75, H - 92);
+  const radius = Math.min(168, W * 0.28, H * 0.27);
+  const sourceLimit = H < 320 ? 2 : W < 680 ? 4 : 6;
+  const peerLimit = W < 440 ? 2 : H < 320 ? 4 : 6;
+  const catLimit = W < 440 || H < 320 ? 2 : Math.min(4, Math.max(2, Math.floor(W / 140)));
+  const page = (items, at, limit) => items.slice((at % Math.max(1, Math.ceil(items.length / limit))) * limit, ((at % Math.max(1, Math.ceil(items.length / limit))) + 1) * limit);
+  const ribbons = page(cats, catPage, catLimit).map((cat, i, list) => {
+    const width = Math.min(132, (W - 32) / list.length - 14);
+    const rx = H < 320 ? x + (i - (list.length - 1) / 2) * W * 0.5 : x + (i - (list.length - 1) / 2) * Math.min(138, (W - 32) / list.length);
+    const ry = H < 320 ? H - 38 : Math.min(H - 45, y + radius + 27);
+    return { cat, x: rx, y: ry, width, rect: { x: rx - width / 2 - 4, y: ry - 17, w: width + 8, h: 34 } };
+  });
+  const heroBoxes = [{ x: x - Math.min(W - 28, 420) / 2, y: y + 14, w: Math.min(W - 28, 420), h: 46 }, { x: x - 52, y: y + 62, w: 104, h: 28 }];
+  const labels = [], reserved = [...heroBoxes, ...ribbons.map(r => r.rect)];
+  const place = (cx, cy, w, h) => {
+    for (const shift of [0, -25, 25, -50, 50, -75, 75, -100, 100]) {
+      const b = { x: clamp(cx - w / 2, 8, W - w - 8), y: clamp(cy + shift, 8, H - h - 8), w, h };
+      if (![...reserved, ...labels].some(r => starRectOverlap(b, r))) { labels.push(b); return b; }
+    }
+    return null;
+  };
+  const portals = page(passages, sourcePage, sourceLimit).map((passage, i, list) => {
+    const angle = list.length === 1 ? -Math.PI / 2 : -Math.PI + 0.22 + i * (Math.PI - 0.44) / (list.length - 1);
+    const px = clamp(x + Math.cos(angle) * radius, 16, W - 16), py = clamp(y + Math.sin(angle) * radius, 42, H - 22);
+    const label = place(px + Math.cos(angle) * (W < 440 ? 18 : 45), py - (Math.sin(angle) < -0.75 ? 43 : 28), Math.min(132, W * 0.25), 33);
+    return { passage, x: px, y: py, label };
+  });
+  const stations = page(peers, peerPage, peerLimit).map((peer, i, list) => {
+    const side = i % 2 ? 1 : -1, row = Math.floor(i / 2);
+    const px = clamp(x + side * (H < 320 ? W * 0.38 : Math.min(W * 0.34, radius * 1.65)), 24, W - 24);
+    const py = W < 440 ? y + radius * 0.7 : y + (row === 0 ? -0.40 : row === 1 ? 0.55 : 1.05) * radius;
+    return { peer, x: px, y: clamp(py, 52, H - 55), label: place(px, py + 16, Math.min(156, W * (H < 320 ? 0.2 : 0.29)), 32) };
+  });
+  return { x, y, radius, portals, peers: stations, ribbons, labels, reserved, heroBoxes, sourceLimit, peerLimit, catLimit };
+}
+
 class StarChartView extends obsidian.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -1991,6 +2220,15 @@ class StarChartView extends obsidian.ItemView {
     this._time = 0;
     this._teardown = [];     // cleanup for whatever a build attached outside its own DOM
     this._openPanel = null;  // 'legend' | 'help' | null
+    this._selectedPath = null;
+    this._marauderMode = false;
+    this._catFilter = null;
+    this._satellitePos = [];
+    this._selectGeneration = 0;
+    this._liveCatsByThread = new Map();
+    this._citationStates = new Map();
+    this._livePollRun = null;
+    this._livePollTimer = null;
   }
 
   getViewType() { return VIEW_TYPE_STAR_CHART; }
@@ -2011,6 +2249,19 @@ class StarChartView extends obsidian.ItemView {
 
   /** Stop the render loop and detach window/document listeners and observers from the last build. */
   _disposeChart() {
+    this._stopLiveActivityPoll();
+    this._selectGeneration++;
+    this._marauderMode = false;
+    this._catFilter = null;
+    this._selectedPath = null;
+    this._satellitePos = [];
+    this._canvasHits = [];
+    this._cameraTarget = null;
+    this._spotlightT = this._marauderT = 0;
+    this._grainPattern = null;
+    this._starTooltip = null;
+    this._hoveredCanvasHit = null;
+    this._canvasDescription = null;
     if (this._animId) {
       cancelAnimationFrame(this._animId);
       this._animId = null;
@@ -2019,6 +2270,9 @@ class StarChartView extends obsidian.ItemView {
     this._teardown = [];
     for (const fn of fns) fn();
     this._openPanel = null;
+    this._chartCanvas = null;
+    this._chartRoot = null;
+    this._syncStarPause = null;
   }
 
   _listen(target, type, handler, options) {
@@ -2052,13 +2306,15 @@ class StarChartView extends obsidian.ItemView {
       const backlinks = backlinkCounts[file.path] || 0;
       const cache = this.plugin.app.metadataCache.getFileCache(file);
       const note = SpecParser.parse(cache?.frontmatter);
-      return { file, note, cache, backlinks, outlinks, score: backlinks * 2 + outlinks };
+      const input = { file, note, frontmatter: cache?.frontmatter || {}, client: this.plugin.cafeClient, settings: this.plugin.settings };
+      return { file, note, cache, backlinks, outlinks, score: backlinks * 2 + outlinks,
+        passages: collectStarPassages(input), footprints: collectStarFootprints(input) };
     });
 
     scored.sort((a, b) => b.score - a.score);
-    const focused = scored.find(s => s.file.path === this._focusPath);
-    const mainStars = scored.filter(s => s.score > 0 && s !== focused).slice(0, focused ? 79 : 80);
-    if (focused) mainStars.unshift(focused);
+    this._allStarItems = scored;
+    const mainStars = selectChartStars(scored, { focusPath: this._focusPath });
+    this._marauderIndex = buildMarauderIndex(scored, mainStars);
 
     // Build connection graph
     const nodeMap = {};
@@ -2210,6 +2466,7 @@ class StarChartView extends obsidian.ItemView {
   }
 
   _matchesFilter(star) {
+    if (this._marauderMode && this._catFilter && !star.footprints.some(f => f.catKey === this._catFilter)) return false;
     if (this._filter === 'all') return true;
     if (this._filter === 'star') return star.backlinks >= 5;
     if (this._filter === 'atlas') return !!star.note;
@@ -2220,6 +2477,9 @@ class StarChartView extends obsidian.ItemView {
   // Layout v2 (spec: research/agent-memory/internal/clowder-atlas/star-chart-layout-v2.md):
   // root grid = top bar (title + filters) · stage (canvas + overlays) · bottom bar (totals + actions)
   _buildChart(root) {
+    this._chartRoot = root;
+    this._dataClient = this.plugin.cafeClient;
+    this._citationStates.clear();
     const { mainStars, connections } = this._gatherData();
     root.classList.remove('is-empty', 'is-compact', 'is-narrow');
 
@@ -2233,7 +2493,7 @@ class StarChartView extends obsidian.ItemView {
       root.addClass('is-empty');
       root.createDiv('atlas-star-stage').createDiv({
         cls: 'atlas-star-empty',
-        text: '你的 Vault 还没有互相链接的笔记。开始用 [[双链]] 连接你的想法，星空就会亮起来。'
+        text: '这个库还没有双链或带来源的笔记。用 [[双链]] 连接想法，或保存带来源的研讨笔记，星空就会亮起来。'
       });
       return;
     }
@@ -2290,17 +2550,22 @@ class StarChartView extends obsidian.ItemView {
     // aria-label into a hover tooltip, which would fight the star tooltip on the canvas.
     const uid = Math.random().toString(36).slice(2, 8);
     const stage = root.createDiv('atlas-star-stage');
-    stage.createSpan({
+    this._canvasDescription = stage.createSpan({
       cls: 'atlas-star-sr-only',
-      text: '记忆星图：拖拽旋转，滚轮或双指缩放，点击星体打开笔记',
+      text: '记忆星图：拖拽旋转，滚轮或双指缩放，单击显影密道，双击打开笔记',
       attr: { id: `atlas-star-canvas-label-${uid}` },
     });
     const canvas = stage.createEl('canvas', {
       cls: 'atlas-star-canvas',
       attr: { role: 'img', 'aria-labelledby': `atlas-star-canvas-label-${uid}` },
     });
+    canvas.setAttribute('tabindex', '0');
+    this._chartCanvas = canvas;
+    this._catBar = stage.createDiv({ cls: 'atlas-star-cat-bar', attr: { hidden: '', role: 'group', 'aria-label': '共创记录筛选' } });
+
     const sceneHint = stage.createDiv({ cls: 'atlas-star-scene-hint', attr: { 'aria-live': 'polite' } });
     const tooltip = stage.createDiv('atlas-star-tooltip');
+    this._starTooltip = tooltip;
     tooltip.style.display = 'none';
 
     // Filtering highlights/dims stars; it never changes the totals in the bottom bar.
@@ -2314,6 +2579,7 @@ class StarChartView extends obsidian.ItemView {
         const n = this._stars.filter((s) => this._matchesFilter(s)).length;
         sceneHint.textContent = n > 0 ? `${f.full} · ${n} 颗星高亮` : `${f.full} · 暂无匹配的星`;
       }
+      this._renderCatBar();
     };
     setFilter(this._filter);
 
@@ -2335,6 +2601,7 @@ class StarChartView extends obsidian.ItemView {
     let dragDistance = 0;  // a drag that ends over a star is a rotation, not a click
     canvas.addEventListener('mousedown', (e) => {
       this._isDragging = true;
+      this._cameraTarget = null;
       dragDistance = 0;
       this._lastMouse = { x: e.clientX, y: e.clientY };
       canvas.style.cursor = 'grabbing';
@@ -2373,7 +2640,7 @@ class StarChartView extends obsidian.ItemView {
       let closestDist = 25;
 
       for (const sp of this._screenPos) {
-        if (!sp.match) continue;
+        if (!sp.match || !sp.interactive) continue;
         const dx = mx - sp.sx, dy = my - sp.sy;
         const d = Math.sqrt(dx * dx + dy * dy);
         if (d < closestDist) {
@@ -2383,12 +2650,24 @@ class StarChartView extends obsidian.ItemView {
       }
 
       this._hoveredIdx = closest;
+      this._hoveredCanvasHit = this._canvasHitAt(mx, my);
+      this._hoveredSatellite = null;
+      if (this._hoveredCanvasHit) {
+        tooltip.textContent = this._hoveredCanvasHit.label;
+        tooltip.style.display = 'block';
+        tooltip.style.left = Math.max(8, Math.min(mx + 12, rect.width - tooltip.offsetWidth - 8)) + 'px';
+        tooltip.style.top = Math.max(8, Math.min(my - tooltip.offsetHeight - 10, rect.height - tooltip.offsetHeight - 8)) + 'px';
+        canvas.style.cursor = 'pointer';
+        return;
+      }
       if (closest >= 0) {
         const s = this._stars[closest];
+        if (s.file.path === this._selectedPath) { tooltip.style.display = 'none'; return; }
         const name = s.note?.title || s.file.basename;
         const lumLabel = s.backlinks >= 5 ? '恒星' : s.backlinks >= 2 ? '温星' : s.backlinks >= 1 ? '冷星' : '暗尘';
         const typeTag = s.note ? ` · ${MEMORY_TYPE_COLORS[s.note.memory_type]?.label || 'Atlas'}` : '';
-        tooltip.textContent = `${name} · 被 ${s.backlinks} 篇笔记链接 · ${lumLabel}${typeTag}`;
+        tooltip.textContent = `${name} · 被 ${s.backlinks} 篇笔记链接 · ${lumLabel}${typeTag}`
+          + (s.passages.length ? ' · ' + s.passages.length + ' 条密道' : '') + (s.footprints.length ? ' · ' + s.footprints.length + ' 只猫共创记录' : '');
         tooltip.style.display = 'block';
         // Canvas fills the stage, so canvas coordinates are stage coordinates; clamp on every side.
         const tw = tooltip.offsetWidth;
@@ -2403,12 +2682,24 @@ class StarChartView extends obsidian.ItemView {
     };
     this._listen(window, 'mousemove', onMouseMove);
 
-    // Click to open note
-    canvas.addEventListener('click', () => {
+    // One click inspects provenance; double click keeps a direct route to the note.
+    let firstStarClick = null;
+    canvas.addEventListener('click', (e) => {
+      if (dragDistance > 4 || e.detail > 1) return;
+      onMouseMove(e);
+      const path = this._hoveredCanvasHit?.kind === 'peer' ? this._hoveredCanvasHit.peer.path
+        : !this._hoveredCanvasHit && this._hoveredIdx >= 0 ? this._stars[this._hoveredIdx].file.path : null;
+      firstStarClick = path ? { path, x: e.clientX, y: e.clientY, at: Date.now() } : null;
+      if (this._hoveredCanvasHit) this._activateCanvasHit(this._hoveredCanvasHit);
+      else if (this._hoveredIdx >= 0) this._selectStar(this._stars[this._hoveredIdx].file.path);
+      else this._clearStarSelection();
+    });
+    canvas.addEventListener('dblclick', (e) => {
       if (dragDistance > 4) return;
-      if (this._hoveredIdx >= 0) {
-        const s = this._stars[this._hoveredIdx];
-        this.plugin.app.workspace.getLeaf(false).openFile(s.file);
+      // The first click starts a camera glide; its star may have left these pixels before the second click.
+      if (firstStarClick && Date.now() - firstStarClick.at < 600 && Math.hypot(e.clientX - firstStarClick.x, e.clientY - firstStarClick.y) < 8) {
+        const file = this.plugin.app.vault.getAbstractFileByPath(firstStarClick.path);
+        if (file) this.plugin.app.workspace.getLeaf(false).openFile(file);
       }
     });
 
@@ -2438,13 +2729,17 @@ class StarChartView extends obsidian.ItemView {
 
     let touchStartDist = 0;
     let touchStartZoom = 1;
+    let touchTap = false;
 
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       if (e.touches.length === 1) {
+        touchTap = true;
+        dragDistance = 0;
         this._isDragging = true;
         this._lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       } else if (e.touches.length === 2) {
+        touchTap = false;
         this._isDragging = false;
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -2458,6 +2753,7 @@ class StarChartView extends obsidian.ItemView {
       if (e.touches.length === 1 && this._isDragging) {
         const dx = e.touches[0].clientX - this._lastMouse.x;
         const dy = e.touches[0].clientY - this._lastMouse.y;
+        dragDistance += Math.abs(dx) + Math.abs(dy);
         this._rotY += dx * 0.005;
         this._rotX += dy * 0.005;
         this._rotX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this._rotX));
@@ -2474,6 +2770,14 @@ class StarChartView extends obsidian.ItemView {
     canvas.addEventListener('touchend', (e) => {
       if (e.touches.length === 0) {
         this._isDragging = false;
+        if (touchTap && dragDistance <= 4 && e.changedTouches.length) {
+          const t = e.changedTouches[0];
+          onMouseMove({ target: canvas, clientX: t.clientX, clientY: t.clientY });
+          if (this._hoveredCanvasHit) this._activateCanvasHit(this._hoveredCanvasHit);
+          else if (this._hoveredIdx >= 0) this._selectStar(this._stars[this._hoveredIdx].file.path);
+          else this._clearStarSelection();
+        }
+        touchTap = false;
       } else if (e.touches.length === 1) {
         this._isDragging = true;
         this._lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -2514,6 +2818,7 @@ class StarChartView extends obsidian.ItemView {
       this._setIcon(pause.icon, [this._paused ? 'play' : 'pause']);
     };
     syncPause();
+    this._syncStarPause = syncPause;
     pause.btn.addEventListener('click', () => {
       this._paused = !this._paused;
       syncPause();
@@ -2521,10 +2826,15 @@ class StarChartView extends obsidian.ItemView {
 
     const reset = addAction({ label: '复位视角', icons: ['focus', 'scan', 'locate-fixed', 'crosshair'] });
     reset.btn.addEventListener('click', () => {
+      this._clearStarSelection();
       this._rotX = 0.32;
       this._rotY = 0;
       this._zoom = 1.0;
     });
+    const marauder = addAction({ label: '开启活点显影', icons: ['footprints', 'paw-print', 'compass'], text: '活点' });
+    this._marauderButton = marauder.btn;
+    marauder.btn.setAttribute('aria-pressed', 'false');
+    marauder.btn.addEventListener('click', () => this._setMarauderMode(!this._marauderMode));
 
     actions.createSpan({ cls: 'atlas-star-divider', attr: { 'aria-hidden': 'true' } });
 
@@ -2565,9 +2875,11 @@ class StarChartView extends obsidian.ItemView {
     addLegendRow('程序记忆', { color: '#73DACA' });
     addLegendRow('细金环', { ring: true, note: 'Atlas 记忆' });
     legendPanel.createEl('p', { text: '达到恒星亮度后统一显示金色。亮度是链接到这篇笔记的源笔记数，不代表猫猫调用次数。' });
+    legendPanel.createEl('h3', { text: '活点星图' });
+    legendPanel.createEl('p', { text: '星盘菱形是来源星门，流光丝线连接共享记忆；朱砂红提示原文变化。交替猫爪按笔记更新时间巡礼，不表示实际阅读顺序。燕尾名牌的活跃光仅说明绑定线程活跃。' });
 
     const helpPanel = makePanel('help', '漫游星图');
-    for (const [what, how] of [['旋转视角', '拖拽'], ['缩放星群', '滚轮 / 双指'], ['打开笔记', '点击星体']]) {
+    for (const [what, how] of [['旋转视角', '拖拽'], ['缩放星群', '滚轮 / 双指'], ['显影密道', '单击星体'], ['打开笔记', '双击星体'], ['共创巡礼', '点「活点」或燕尾名牌'], ['键盘星门', '方向键选择，Enter打开']]) {
       const row = helpPanel.createDiv('atlas-star-help-row');
       row.createSpan({ text: what });
       row.createSpan({ text: how });
@@ -2603,10 +2915,26 @@ class StarChartView extends obsidian.ItemView {
     }
     // Escape only while focus is inside this view, so other panes keep their own Escape.
     this._listen(root, 'keydown', (e) => {
-      if (e.key !== 'Escape' || !this._openPanel) return;
+      if (e.target === canvas && ['ArrowRight', 'ArrowLeft', 'Enter'].includes(e.key)) {
+        e.preventDefault(); e.stopPropagation();
+        const hits = this._canvasHits || [];
+        if (e.key === 'Enter') {
+          const hit = hits.find(h => h.key === this._keyboardHitKey);
+          if (hit) this._activateCanvasHit(hit); else this._openSelectedStar();
+        } else if (hits.length) {
+          const index = hits.findIndex(h => h.key === this._keyboardHitKey);
+          const next = (index + (e.key === 'ArrowRight' ? 1 : -1) + hits.length) % hits.length;
+          this._keyboardHitKey = hits[next].key;
+          this._canvasDescription.textContent = hits[next].label + '。Enter执行，Escape收起。';
+        }
+        return;
+      }
+      if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopPropagation();
-      closePanel(true);
+      if (this._openPanel) closePanel(true);
+      else if (this._selectedPath) this._clearStarSelection();
+      else if (this._catFilter) { this._catFilter = null; this._renderCatBar(); }
     });
     this._listen(document, 'pointerdown', (e) => {
       if (!this._openPanel) return;
@@ -2621,6 +2949,7 @@ class StarChartView extends obsidian.ItemView {
       if (!width) return;  // hidden/background leaf: keep classes until it is measured again
       root.classList.toggle('is-compact', width < 680);
       root.classList.toggle('is-narrow', width < 440);
+      root.classList.toggle('is-short', stage.getBoundingClientRect().height < 360);
     };
 
     // Obsidian floats its status bar over the window's bottom-right corner. When this pane sits
@@ -2667,183 +2996,542 @@ class StarChartView extends obsidian.ItemView {
 
     // Size the canvas backing store now, then follow the canvas' own box
     resize();
-    const resizeObs = new ResizeObserver(() => resize());
+    const resizeObs = new ResizeObserver(() => { resize(); applyWidth(root.getBoundingClientRect().width); this._syncLiveActivityPoll(); });
     resizeObs.observe(canvas);
     this._teardown.push(() => resizeObs.disconnect());
+    this._listen(document, 'visibilitychange', () => this._syncLiveActivityPoll());
+    const leafRef = this.plugin.app.workspace.on('active-leaf-change', () => this._syncLiveActivityPoll());
+    this._teardown.push(() => this.plugin.app.workspace.offref(leafRef));
+    this._renderCatBar();
+    if (focused) this._selectStar(focused.file.path, false, true);
 
-    // ── Animation loop ──
+    // One animation loop, with no frame-time DOM work.
     const ctx = canvas.getContext('2d');
+    this._createStarGrain(ctx);
     const render = () => {
       this._animId = requestAnimationFrame(render);
-      this._time++;
-
-      const dpr = canvas._dpr || 1;
-      const W = canvas._W || 800;
-      const H = canvas._H || 600;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      // Auto-rotate when not dragging and not paused
-      if (!this._isDragging && !this._paused) {
-        this._rotY += this._autoRotSpeed;
-      }
-
-      // ── Warm Midnight Cat Cafe Nebula Background ──
-      const bgGrad = ctx.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H / 2, W * 0.78);
-      bgGrad.addColorStop(0, '#241C27');
-      bgGrad.addColorStop(0.52, '#171219');
-      bgGrad.addColorStop(1, '#0E0B10');
-      ctx.fillStyle = bgGrad;
-      ctx.fillRect(0, 0, W, H);
-
-      // Warm Cat Cafe Nebula Clouds (Caramel, Amber Gold, Ragdoll Blue)
-      ctx.globalCompositeOperation = 'screen';
-      const nebulaColors = [
-        { x: W * 0.32, y: H * 0.38, r: W * 0.28, color: 'rgba(200, 125, 85, 0.045)' },
-        { x: W * 0.68, y: H * 0.58, r: W * 0.24, color: 'rgba(108, 142, 191, 0.04)' },
-        { x: W * 0.50, y: H * 0.28, r: W * 0.18, color: 'rgba(232, 184, 75, 0.03)' },
-      ];
-      for (const nb of nebulaColors) {
-        const g = ctx.createRadialGradient(nb.x, nb.y, 0, nb.x, nb.y, nb.r);
-        g.addColorStop(0, nb.color);
-        g.addColorStop(1, 'transparent');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, W, H);
-      }
-      ctx.globalCompositeOperation = 'source-over';
-
-      // ── Draw warm stardust particles ──
-      for (const d of this._dust) {
-        const rot = this._rotatePoint(d.x, d.y, d.z, this._rotX, this._rotY);
-        const p = this._project(rot.x, rot.y, rot.z, W, H);
-        if (p.scale <= 0) continue;
-
-        const twinkle = 0.5 + 0.5 * Math.sin(this._time * d.twinkleSpeed + d.twinkleOffset);
-        const alpha = d.brightness * twinkle * Math.min(1, p.scale * 1.4);
-        const size = d.size * p.scale;
-
-        ctx.beginPath();
-        ctx.arc(p.sx, p.sy, Math.max(0.3, size), 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(238, 222, 204, ${alpha.toFixed(3)})`;
-        ctx.fill();
-      }
-
-      // ── Project all stars ──
-      const projected = this._stars.map((s, i) => {
-        const rot = this._rotatePoint(s.x, s.y, s.z, this._rotX, this._rotY);
-        const p = this._project(rot.x, rot.y, rot.z, W, H);
-        const match = this._matchesFilter(s);
-        return { i, sx: p.sx, sy: p.sy, scale: p.scale, depth: p.depth, match };
-      });
-
-      this._screenPos = projected;
-
-      const projByIdx = {};
-      for (const p of projected) projByIdx[p.i] = p;
-
-      projected.sort((a, b) => b.depth - a.depth);
-
-      // ── Draw constellation edges ──
-      ctx.lineWidth = 1;
-      for (const [a, b] of this._edges) {
-        const pa = projByIdx[a];
-        const pb = projByIdx[b];
-        if (!pa || !pb) continue;
-        const bothMatch = pa.match && pb.match;
-        const avgScale = (pa.scale + pb.scale) / 2;
-        const alpha = bothMatch ? Math.min(0.28, avgScale * 0.32) : 0.03;
-        ctx.beginPath();
-        ctx.moveTo(pa.sx, pa.sy);
-        ctx.lineTo(pb.sx, pb.sy);
-        ctx.strokeStyle = `rgba(212, 165, 116, ${alpha.toFixed(3)})`;
-        ctx.stroke();
-      }
-
-      // ── Draw stars ──
-      for (const p of projected) {
-        const s = this._stars[p.i];
-        const isHovered = p.i === this._hoveredIdx || s.file.path === this._focusPath;
-        const dimFactor = p.match ? 1 : 0.14;
-        const twinkle = 0.82 + 0.18 * Math.sin(this._time * s.twinkleSpeed + s.twinkleOffset);
-        const baseR = this._starBaseRadius(s.backlinks);
-        const r = baseR * p.scale * twinkle * (isHovered ? 1.55 : 1);
-        const color = this._starColor(s.backlinks, s.note);
-
-        if (r < 0.3) continue;
-
-        // Soft halo glow
-        if ((s.backlinks >= 2 || isHovered) && p.match) {
-          const glowR = r * (s.backlinks >= 5 ? 4.2 : 2.8);
-          const gc = this._hexToRGBA(color, (isHovered ? 0.42 : 0.24) * dimFactor);
-          const gcFade = this._hexToRGBA(color, 0);
-          const glowGrad = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, glowR);
-          glowGrad.addColorStop(0, gc);
-          glowGrad.addColorStop(1, gcFade);
-          ctx.beginPath();
-          ctx.arc(p.sx, p.sy, glowR, 0, Math.PI * 2);
-          ctx.fillStyle = glowGrad;
-          ctx.fill();
-        }
-
-        // Star body
-        if (s.backlinks >= 5) {
-          this._drawStarShape(ctx, p.sx, p.sy, 5, r, r * 0.46, color, twinkle * dimFactor);
-        } else {
-          ctx.beginPath();
-          ctx.arc(p.sx, p.sy, r, 0, Math.PI * 2);
-          const alpha = (s.backlinks === 0 ? 0.42 * p.scale : 0.9 * twinkle) * dimFactor;
-          ctx.fillStyle = this._hexToRGBA(color, Math.min(1, alpha));
-          ctx.fill();
-        }
-
-        // Subtle golden ring for Atlas-indexed notes
-        if (s.note && r > 2.5 && p.match) {
-          ctx.beginPath();
-          ctx.arc(p.sx, p.sy, r + 2.2, 0, Math.PI * 2);
-          ctx.strokeStyle = this._hexToRGBA('#E8B84B', 0.45 * p.scale);
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
-
-        // Pill-backed readable label for prominent or hovered stars
-        if (p.match && ((s.backlinks >= 2 && p.scale > 0.44) || p.scale > 0.85 || isHovered)) {
-          const rawTitle = s.note?.title || s.file.basename;
-          const name = rawTitle.length > 18 ? rawTitle.substring(0, 17) + '…' : rawTitle;
-          const fontSize = Math.max(9, Math.min(12, Math.round(10.5 * p.scale)));
-          ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
-          ctx.textAlign = 'center';
-          const textW = ctx.measureText(name).width;
-          const pillW = textW + 10;
-          const pillH = fontSize + 5;
-          const pillX = p.sx - pillW / 2;
-          const pillY = p.sy + r + 4;
-
-          ctx.fillStyle = isHovered ? 'rgba(200, 125, 85, 0.88)' : 'rgba(20, 16, 14, 0.68)';
-          ctx.beginPath();
-          if (ctx.roundRect) {
-            ctx.roundRect(pillX, pillY, pillW, pillH, 4);
-          } else {
-            ctx.rect(pillX, pillY, pillW, pillH);
-          }
-          ctx.fill();
-
-          ctx.fillStyle = isHovered ? '#FFF' : `rgba(248, 240, 230, ${(0.88 * p.scale).toFixed(2)})`;
-          ctx.fillText(name, p.sx, pillY + fontSize);
-        }
-
-        // Hovered outer ring
-        if (isHovered) {
-          ctx.beginPath();
-          ctx.arc(p.sx, p.sy, r + 5, 0, Math.PI * 2);
-          ctx.strokeStyle = '#F5C85C';
-          ctx.lineWidth = 1.6;
-          ctx.stroke();
-          ctx.lineWidth = 1;
-        }
-      }
+      this._renderStarFrame(ctx, canvas._W || 800, canvas._H || 600, canvas._dpr || 1);
     };
 
     canvas.style.cursor = 'grab';
     render();
+  }
+
+  refresh() {
+    if (!this._chartRoot?.isConnected) return;
+    const changed = this._dataClient !== this.plugin.cafeClient;
+    if (changed || !this.plugin.isCafeConnected) {
+      this._stopLiveActivityPoll();
+      this._selectGeneration++;
+      this._citationStates.clear();
+      this._marauderMode = false;
+      this._catFilter = null;
+    }
+    this._dataClient = this.plugin.cafeClient;
+    this._refreshStarRecords();
+    this._syncMarauderButton();
+    this._syncLiveActivityPoll();
+  }
+
+  _refreshStarRecords() {
+    if (!this._allStarItems) return;
+    const client = this.plugin.cafeClient;
+    const byPath = new Map();
+    for (const s of this._allStarItems) {
+      const input = { file: s.file, note: s.note, frontmatter: s.cache?.frontmatter || {}, client,
+        settings: this.plugin.settings, liveCatsByThread: this._liveCatsByThread };
+      s.passages = collectStarPassages(input);
+      s.footprints = collectStarFootprints(input);
+      byPath.set(s.file.path, s);
+    }
+    for (const s of this._stars) {
+      const original = byPath.get(s.file.path);
+      if (original) { s.passages = original.passages; s.footprints = original.footprints; }
+    }
+    this._marauderIndex = buildMarauderIndex(this._allStarItems, this._stars);
+    this._updateSelectedRelations();
+    this._renderCatBar();
+    this._syncCanvasDescription();
+  }
+
+  _updateSelectedRelations() {
+    const path = this._selectedPath;
+    this._selectionPaths = new Set(path ? [path, ...this._marauderIndex.peers.get(path).map(p => p.path)] : []);
+    this._selectedEdges = path ? this._marauderIndex.edgesFor(path) : [];
+    this._selectedPeers = path ? this._marauderIndex.peers.get(path) : [];
+  }
+
+  _selectStar(path, verify = true, fromFocus = false) {
+    if (!this._stars.some(s => s.file.path === path)) return;
+    const generation = ++this._selectGeneration;
+    this._selectedPath = path;
+    if (this._starTooltip) this._starTooltip.style.display = 'none';
+    this._selectionFromFocus = fromFocus;
+    this._sourcePage = this._peerPage = this._catPage = 0;
+    this._keyboardHitKey = null;
+    this._catFilter = null;
+    this._renderCatBar();
+    const s = this._stars.find(s => s.file.path === path);
+    const angle = Math.atan2(s.x, s.z);
+    const diff = ((angle - this._rotY + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+    this._cameraTarget = { x: Math.atan2(s.y, Math.hypot(s.x, s.z)), y: this._rotY + diff };
+    this._paused = true;
+    this._syncStarPause?.();
+    this._updateSelectedRelations();
+    this._syncCanvasDescription();
+    if (verify) this._verifyStarCitations(generation);
+  }
+
+  _clearStarSelection() {
+    this._selectGeneration++;
+    this._leavingStarPath = this._selectedPath;
+    this._selectedPath = null;
+    this._cameraTarget = null;
+    this._keyboardHitKey = null;
+    this._focusPath = null;
+    this._satellitePos = [];
+    this._hoveredSatellite = null;
+    this._updateSelectedRelations();
+    this._syncCanvasDescription();
+  }
+
+  _syncMarauderButton() {
+    this._marauderButton?.setAttribute('aria-pressed', String(this._marauderMode));
+    this._marauderButton?.setAttribute('aria-label', this._marauderMode ? '收起活点显影' : '开启活点显影');
+  }
+
+  _setMarauderMode(on) {
+    this._marauderMode = on;
+    this._inkDirection = on ? 1 : -1;
+    this._inkPhase = on ? 0.01 : 0.99;
+    if (!on) { this._catFilter = null; this._stopLiveActivityPoll(); }
+    this._syncMarauderButton();
+    this._refreshStarRecords();
+    this._syncLiveActivityPoll();
+  }
+
+  _renderCatBar() {
+    if (!this._catBar?.isConnected) return;
+    const active = this._catBar.ownerDocument.activeElement;
+    const focusedCat = this._catBar.contains(active) ? active.dataset.catKey : undefined;
+    this._catBar.empty();
+    this._catBar.hidden = !this._marauderMode;
+    this._catBar.toggleClass('with-scene-hint', this._filter !== 'all');
+    if (!this._marauderMode) return;
+    const cats = this._marauderIndex.cats;
+    if (!cats.length) { this._catBar.setText('活点显影 · 暂无共创或维护记录'); return; }
+    for (const cat of [{ catKey: null, name: '全部' }, ...cats]) {
+      const button = this._catBar.createEl('button', { cls: 'atlas-star-cat-pill', text: cat.name,
+        attr: { 'aria-pressed': String(this._catFilter === cat.catKey), 'data-cat-key': cat.catKey || 'all' } });
+      if (cat.color) button.style.setProperty('--cat-color', cat.color);
+      button.addEventListener('click', () => { if (this._selectedPath) this._clearStarSelection(); this._catFilter = cat.catKey; this._renderCatBar(); });
+    }
+    if (focusedCat !== undefined) [...this._catBar.querySelectorAll('button')].find(b => b.dataset.catKey === focusedCat)?.focus({ preventScroll: true });
+  }
+
+  _syncCanvasDescription() {
+    if (!this._canvasDescription) return;
+    const star = this._stars.find(s => s.file.path === this._selectedPath);
+    this._canvasDescription.textContent = star ? (star.note?.title || star.file.basename) + '，星盘已展开。左右方向键选择星门或关联星，Enter打开，Escape收起。' : '单击显影星盘，双击打开笔记；活点显示按笔记更新时间串联的共创步迹。';
+  }
+
+  _paintStarCitation() { /* Current states are drawn directly on the memory filaments on the next frame. */ }
+
+  async _verifyStarCitations(generation) {
+    const client = this.plugin.cafeClient;
+    const star = this._stars.find(s => s.file.path === this._selectedPath);
+    const citations = (star?.passages || []).filter(p => p.citation && p.actionable && p.cafe === client?.baseUrl);
+    // One selected star's statuses, bounded in flight. Switching selection retires the remaining queue.
+    let next = 0;
+    const worker = async () => {
+      while (next < citations.length && generation === this._selectGeneration && client === this.plugin.cafeClient && this._chartCanvas?.isConnected) {
+        const p = citations[next++];
+        this._citationStates.set(p.id, { state: 'checking' });
+        this._paintStarCitation(p.id);
+        let result;
+        try { result = await this.plugin.citationStanding(p.citation); } catch { result = { state: 'unknown' }; }
+        if (generation !== this._selectGeneration || client !== this.plugin.cafeClient || !this._chartCanvas?.isConnected) return;
+        this._citationStates.set(p.id, result);
+        this._paintStarCitation(p.id);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, citations.length) }, worker));
+  }
+
+  _openStarPassage(p) {
+    const client = this.plugin.cafeClient;
+    if (!p.actionable || !client?.connected || p.cafe !== client.baseUrl || client !== this._dataClient) {
+      new obsidian.Notice(p.readonlyReason || '猫咖连接已变化，请重新选中这颗星');
+      return;
+    }
+    if (p.citation) new CafeMemoryModal(this.app, this.plugin, { show: p.citation }).open();
+    else if (client.threads.some(t => t.id === p.threadId)) this.plugin.openCafeChat({ threadId: p.threadId, client });
+  }
+
+  _liveActivityEligible() {
+    const canvas = this._chartCanvas;
+    return Boolean(this._marauderMode && this.plugin.isCafeConnected && this.plugin.cafeClient === this._dataClient
+      && canvas?.isConnected && !canvas.ownerDocument.hidden && canvas.getClientRects().length);
+  }
+
+  _stopLiveActivityPoll() {
+    clearTimeout(this._livePollTimer);
+    this._livePollTimer = null;
+    this._livePollRun = null;
+    if (this._liveCatsByThread?.size) { this._liveCatsByThread.clear(); this._refreshStarRecords(); }
+  }
+
+  _syncLiveActivityPoll() {
+    if (!this._liveActivityEligible()) { this._stopLiveActivityPoll(); return; }
+    if (this._livePollRun) return;
+    const run = this._livePollRun = {};
+    const tick = async () => {
+      if (this._livePollRun !== run) return;
+      if (!this._liveActivityEligible()) { this._stopLiveActivityPoll(); return; }
+      const client = this.plugin.cafeClient;
+      const allowed = new Set(this._stars.flatMap(s => s.passages.filter(p => p.actionable && p.cafe === client.baseUrl
+        && client.threads.some(t => t.id === p.threadId)).map(p => p.threadId)));
+      if (allowed.size && !this._liveRequest) {
+        const request = this._liveRequest = {};
+        try {
+          const executions = await client.fetchProjectActiveExecutions([...allowed][0]);
+          if (this._livePollRun !== run || client !== this.plugin.cafeClient || !this._liveActivityEligible()) return;
+          const live = new Map();
+          for (const e of executions) if (allowed.has(e.threadId)) {
+            if (!live.has(e.threadId)) live.set(e.threadId, new Set());
+            live.get(e.threadId).add(e.catId);
+          }
+          this._liveCatsByThread = live;
+          this._refreshStarRecords();
+        } finally { if (this._liveRequest === request) this._liveRequest = null; }
+      }
+      if (this._livePollRun === run) this._livePollTimer = setTimeout(tick, 10000);
+    };
+    tick();
+  }
+
+  _createStarGrain(ctx) {
+    const grain = document.createElement('canvas');
+    grain.width = grain.height = 160;
+    const g = grain.getContext('2d'), pixels = g.createImageData(160, 160);
+    for (let i = 0; i < pixels.data.length; i += 4) {
+      const v = 140 + Math.floor(Math.random() * 70);
+      pixels.data[i] = v; pixels.data[i + 1] = v * 0.82; pixels.data[i + 2] = v * 0.62; pixels.data[i + 3] = 8;
+    }
+    g.putImageData(pixels, 0, 0);
+    this._grainPattern = ctx.createPattern(grain, 'repeat');
+    this._motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    this._reducedMotion = this._motionQuery.matches;
+    const changed = () => { this._reducedMotion = this._motionQuery.matches; };
+    this._motionQuery.addEventListener('change', changed);
+    this._teardown.push(() => this._motionQuery.removeEventListener('change', changed));
+  }
+
+  _renderStarFrame(ctx, W, H, dpr) {
+    this._time++;
+    const reduced = this._reducedMotion, time = reduced ? 0 : this._time;
+    const approach = (v, target, rate) => reduced || Math.abs(target - v) < 0.003 ? target : v + (target - v) * rate;
+    this._spotlightT = approach(this._spotlightT || 0, this._selectedPath ? 1 : 0, 0.14);
+    this._marauderT = approach(this._marauderT || 0, this._marauderMode ? 1 : 0, 0.09);
+    if (this._cameraTarget) {
+      this._rotX = approach(this._rotX, this._cameraTarget.x, 0.12);
+      this._rotY = approach(this._rotY, this._cameraTarget.y, 0.12);
+      if (this._rotX === this._cameraTarget.x && this._rotY === this._cameraTarget.y) this._cameraTarget = null;
+    } else if (!reduced && !this._isDragging && !this._paused) this._rotY += this._autoRotSpeed;
+    const spot = this._spotlightT, mar = this._marauderT;
+    const focusPath = this._selectedPath || (spot > 0 ? this._leavingStarPath : null);
+    const hero = this._stars.find(s => s.file.path === focusPath);
+    const orbit = hero ? starOrbitLayout({ width: W, height: H, passages: hero.passages, peers: this._selectedPeers || [], cats: hero.footprints,
+      sourcePage: this._sourcePage, peerPage: this._peerPage, catPage: this._catPage }) : null;
+    this._lastOrbitLayout = orbit;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.textBaseline = 'alphabetic';
+    const blend = (a, b) => 'rgb(' + a.map((c, i) => Math.round(c + (b[i] - c) * mar)).join(',') + ')';
+    const bg = ctx.createRadialGradient(W / 2, H * 0.46, 0, W / 2, H / 2, Math.max(W, H) * 0.78);
+    bg.addColorStop(0, blend([34, 26, 38], [46, 35, 25])); bg.addColorStop(0.55, blend([21, 16, 24], [28, 22, 17])); bg.addColorStop(1, blend([12, 9, 14], [17, 13, 10]));
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    if (mar > 0.01) {
+      ctx.save(); ctx.globalAlpha = mar * 0.85; ctx.fillStyle = this._grainPattern; ctx.fillRect(0, 0, W, H); ctx.restore();
+      this._drawStarDial(ctx, W / 2, H / 2, Math.min(W, H) * 0.44, mar * 0.12, time * 0.00025);
+      ctx.save(); ctx.strokeStyle = this._hexToRGBA('#D9B174', mar * 0.20);
+      for (const [x, y, dx, dy] of [[18, 18, 1, 1], [W - 18, 18, -1, 1], [18, H - 18, 1, -1], [W - 18, H - 18, -1, -1]]) {
+        ctx.beginPath(); ctx.moveTo(x + dx * 22, y); ctx.lineTo(x, y); ctx.lineTo(x, y + dy * 22); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    if (this._inkDirection && !reduced) {
+      this._inkPhase += this._inkDirection * 0.026;
+      if (this._inkPhase <= 0 || this._inkPhase >= 1) this._inkDirection = 0;
+      const v = Math.max(0, Math.min(1, this._inkPhase));
+      ctx.save(); ctx.strokeStyle = this._hexToRGBA('#F3CB7F', Math.sin(v * Math.PI) * 0.7); ctx.lineWidth = 2.4;
+      ctx.shadowColor = '#E6BC7A'; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.arc(W / 2, H / 2, Math.max(1, (1 - (1 - v) ** 3) * Math.hypot(W, H) * 0.62), 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+    }
+    for (const d of this._dust) {
+      const r = this._rotatePoint(d.x, d.y, d.z, this._rotX, this._rotY), p = this._project(r.x, r.y, r.z, W, H);
+      if (p.scale <= 0) continue;
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, Math.max(0.3, d.size * p.scale), 0, Math.PI * 2);
+      ctx.fillStyle = this._hexToRGBA('#EEDECC', d.brightness * (0.5 + 0.5 * Math.sin(time * d.twinkleSpeed + d.twinkleOffset))); ctx.fill();
+    }
+    const projected = this._stars.map((s, i) => {
+      const r = this._rotatePoint(s.x, s.y, s.z, this._rotX, this._rotY), p = this._project(r.x, r.y, r.z, W, H);
+      if (s === hero && orbit) { p.sx += (orbit.x - p.sx) * spot; p.sy += (orbit.y - p.sy) * spot; }
+      return { ...p, i, match: this._matchesFilter(s), interactive: !focusPath || s === hero };
+    });
+    this._screenPos = projected;
+    ctx.lineWidth = 0.9;
+    for (const [a, b] of this._edges) {
+      const pa = projected[a], pb = projected[b];
+      ctx.beginPath(); ctx.moveTo(pa.sx, pa.sy); ctx.lineTo(pb.sx, pb.sy);
+      ctx.strokeStyle = this._hexToRGBA('#D4A87A', (pa.match && pb.match ? 0.22 : 0.03) * (1 - spot * 0.92)); ctx.stroke();
+    }
+    this._canvasHits = []; this._satellitePos = [];
+    const labels = [];
+    if (mar > 0.02 && spot < 0.9) {
+      for (const edge of this._marauderIndex.globalEdges) {
+        const a = this._stars.findIndex(s => s.file.path === edge.a), b = this._stars.findIndex(s => s.file.path === edge.b);
+        if (!projected[a]?.match || !projected[b]?.match) continue;
+        this._drawMemoryFilament(ctx, projected[a].sx, projected[a].sy, projected[b].sx, projected[b].sy, '#E6BC7A', mar * (1 - spot) * 0.24, { readonly: true });
+      }
+      this._drawStarTrails(ctx, projected, W, H, mar * (1 - spot), labels, time);
+    }
+    for (const p of [...projected].sort((a, b) => b.depth - a.depth)) {
+      const s = this._stars[p.i], selected = s === hero, hovered = p.i === this._hoveredIdx;
+      const factor = (p.match ? 1 : 0.10) * (selected ? 1 : 1 - spot * 0.93);
+      const radius = Math.max(0.6, this._starBaseRadius(s.backlinks) * p.scale * (selected ? 1.8 : hovered ? 1.4 : 1));
+      const color = selected ? '#F5C85C' : this._starColor(s.backlinks, s.note);
+      if (s.backlinks >= 2 || selected || hovered) this._starGlow(ctx, p.sx, p.sy, radius * (selected ? 6 : 3.8), color, factor * 0.38);
+      if (selected || s.backlinks >= 5) this._drawStarShape(ctx, p.sx, p.sy, 5, radius, radius * 0.46, color, factor);
+      else { ctx.beginPath(); ctx.arc(p.sx, p.sy, radius, 0, Math.PI * 2); ctx.fillStyle = this._hexToRGBA(color, factor * (s.backlinks ? 0.9 : 0.45)); ctx.fill(); }
+      if (mar > 0.05 && s.passages.length && factor > 0.25 && !selected) {
+        const changed = s.passages.some(c => ['updated', 'gone'].includes(this._citationStates.get(c.id)?.state));
+        ctx.save(); ctx.setLineDash([2.5, 3]); ctx.strokeStyle = this._hexToRGBA(changed ? '#E86A58' : '#E6BC7A', factor * mar * 0.65);
+        ctx.beginPath(); ctx.arc(p.sx, p.sy, radius + 5, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+      }
+      const show = !focusPath && p.match && (hovered || (s.backlinks >= 5 && p.scale > 0.48) || (p.scale > 0.98 && s.backlinks >= 3) || (this._catFilter && s.footprints.some(f => f.catKey === this._catFilter)));
+      if (show) {
+        ctx.font = '500 11px -apple-system, BlinkMacSystemFont, sans-serif';
+        const text = this._clipStarText(s.note?.title || s.file.basename, 140, ctx), w = ctx.measureText(text).width;
+        const b = { x: p.sx - w / 2 - 4, y: p.sy + radius + 6, w: w + 8, h: 19 };
+        if (b.x >= 4 && b.x + b.w <= W - 4 && b.y + b.h < H - 4 && !labels.some(r => starRectOverlap(b, r))) {
+          labels.push(b); this._starText(ctx, text, p.sx, b.y + 1, '#EFE6DA', 11, factor);
+        }
+      }
+    }
+    this._labelBoxes = labels;
+    if (hero && orbit && spot > 0.02) this._drawStarOrbit(ctx, hero, orbit, W, H, spot, time);
+    if (!this._selectedPath) this._canvasHits = this._canvasHits.filter(h => h.kind === 'cat');
+    this._bannerHits = this._canvasHits.filter(h => h.kind === 'cat');
+  }
+
+  _starText(ctx, text, x, y, color, size = 11, alpha = 1) {
+    ctx.save(); ctx.font = '500 ' + size + 'px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.shadowColor = 'rgba(8,6,10,0.96)'; ctx.shadowBlur = 8;
+    ctx.fillStyle = this._hexToRGBA(color, alpha); ctx.fillText(text, x, y); ctx.restore();
+  }
+
+  _clipStarText(text, width, ctx) {
+    const original = String(text), chars = [...original.slice(0, 512)];
+    if (original.length <= 512 && ctx.measureText(original).width <= width) return original;
+    let low = 0, high = chars.length;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      if (ctx.measureText(chars.slice(0, mid).join('') + '…').width <= width) low = mid;
+      else high = mid - 1;
+    }
+    return chars.slice(0, low).join('') + '…';
+  }
+
+  _starGlow(ctx, x, y, radius, color, alpha) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(1, radius));
+    g.addColorStop(0, this._hexToRGBA(color, alpha)); g.addColorStop(1, this._hexToRGBA(color, 0));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, Math.max(1, radius), 0, Math.PI * 2); ctx.fill();
+  }
+
+  _drawStarDial(ctx, x, y, radius, alpha, rotation) {
+    ctx.save(); ctx.strokeStyle = this._hexToRGBA('#E6BC7A', alpha); ctx.lineWidth = 1;
+    for (const r of [radius * 0.68, radius, radius * 1.32]) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); }
+    for (let i = 0; i < 72; i++) {
+      const a = i * Math.PI / 36 + rotation, end = radius + (i % 6 ? 3 : 7);
+      ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * radius, y + Math.sin(a) * radius); ctx.lineTo(x + Math.cos(a) * end, y + Math.sin(a) * end); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  _drawMemoryFilament(ctx, x1, y1, x2, y2, color, alpha, { crimson = false, readonly = false, phase = 0 } = {}) {
+    const time = this._reducedMotion ? 0 : this._time, dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
+    const bend = (phase % 2 ? -1 : 1) * Math.min(25, len * 0.14);
+    const cx = (x1 + x2) / 2 - dy / len * bend, cy = (y1 + y2) / 2 + dx / len * bend;
+    const c = crimson ? '#E86A58' : color, breathe = crimson && !this._reducedMotion ? 0.78 + 0.22 * Math.sin(time * 0.09) : 1;
+    const line = width => { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo(cx, cy, x2, y2); ctx.lineWidth = width; ctx.stroke(); };
+    ctx.save(); ctx.lineCap = 'round';
+    if (!readonly) { ctx.strokeStyle = this._hexToRGBA(c, alpha * 0.22 * breathe); line(crimson ? 7 : 5); }
+    ctx.setLineDash(readonly ? [3, 5] : [5, 4]); ctx.lineDashOffset = readonly ? 0 : -time * 0.24;
+    ctx.strokeStyle = this._hexToRGBA(c, alpha * 0.88 * breathe); line(crimson ? 1.8 : 1.35); ctx.setLineDash([]);
+    if (!readonly && !this._reducedMotion) for (let b = 0; b < 3; b++) {
+      const u = (time * 0.005 + b / 3 + phase * 0.13) % 1, inv = 1 - u;
+      this._starGlow(ctx, inv * inv * x1 + 2 * inv * u * cx + u * u * x2, inv * inv * y1 + 2 * inv * u * cy + u * u * y2, 7, c, alpha * Math.sin(u * Math.PI));
+    }
+    ctx.restore();
+  }
+
+  _drawDirectionalPaw(ctx, x, y, angle, size, color, alpha) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(angle + Math.PI / 2); ctx.fillStyle = this._hexToRGBA(color, alpha);
+    ctx.beginPath(); ctx.ellipse(0, size * 0.28, size * 0.52, size * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+    for (const dx of [-0.56, 0, 0.56]) { ctx.beginPath(); ctx.ellipse(dx * size, size * (dx ? -0.34 : -0.56), size * 0.22, size * 0.28, dx * 0.5, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+  }
+
+  _drawStarRibbon(ctx, x, y, cat, alpha, width, labels) {
+    ctx.save(); ctx.font = '500 11px -apple-system, BlinkMacSystemFont, sans-serif';
+    const text = this._clipStarText(cat.name + (cat.live ? ' · 活跃' : ''), Math.max(40, width - 38), ctx);
+    const w = Math.min(width, ctx.measureText(text).width + 38), h = 25;
+    const box = { x: x - w / 2, y: y - h / 2, w, h }, key = 'cat:' + cat.catKey;
+    const focused = this._hoveredCanvasHit?.key === key || this._keyboardHitKey === key || this._catFilter === cat.catKey;
+    ctx.globalAlpha = alpha; ctx.fillStyle = 'rgba(27,21,17,0.90)'; ctx.strokeStyle = cat.color; ctx.lineWidth = focused ? 1.6 : 0.9;
+    ctx.shadowColor = cat.color; ctx.shadowBlur = focused || cat.live ? 9 : 0;
+    ctx.beginPath(); ctx.moveTo(box.x, box.y + 2); ctx.lineTo(box.x + w, box.y + 2); ctx.lineTo(box.x + w - 5, y); ctx.lineTo(box.x + w, box.y + h - 2);
+    ctx.lineTo(box.x, box.y + h - 2); ctx.lineTo(box.x + 5, y); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.beginPath(); ctx.moveTo(box.x + 10, box.y + 2); ctx.lineTo(box.x + 10, box.y + h - 2); ctx.moveTo(box.x + w - 10, box.y + 2); ctx.lineTo(box.x + w - 10, box.y + h - 2); ctx.stroke();
+    const dotX = box.x + 19;
+    if (cat.live) { ctx.beginPath(); ctx.arc(dotX, y, 5 + (this._reducedMotion ? 0 : Math.sin(this._time * 0.08) * 2), 0, Math.PI * 2); ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(dotX, y, 2.6, 0, Math.PI * 2); ctx.fillStyle = cat.color; ctx.fill();
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#F7ECDA'; ctx.fillText(text, dotX + 8, y + 0.5); ctx.restore();
+    this._canvasHits.push({ ...box, key, kind: 'cat', cat, label: cat.name + '的共创星域；活跃仅指绑定线程' });
+    labels.push({ x: box.x - 5, y: box.y - 4, w: box.w + 10, h: box.h + 8 });
+  }
+
+  _drawStarTrails(ctx, projected, W, H, alpha, labels, time) {
+    const positions = new Map(this._stars.map((s, i) => [s.file.path, projected[i]]));
+    const placed = [];
+    for (const [order, cat] of this._marauderIndex.cats.entries()) {
+      if (this._catFilter && cat.catKey !== this._catFilter) continue;
+      const own = this._stars.filter(s => s.footprints.some(f => f.catKey === cat.catKey));
+      const live = own.some(s => s.footprints.some(f => f.catKey === cat.catKey && f.live));
+      const trail = this._marauderIndex.trails.find(t => t.catKey === cat.catKey);
+      const points = (trail?.paths || own.slice(-1).map(s => s.file.path)).map(p => positions.get(p)).filter(p => p?.match && p.scale > 0);
+      if (!points.length) continue;
+      let length = 0; const segments = [];
+      for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1], b = points[i], dx = b.sx - a.sx, dy = b.sy - a.sy, len = Math.hypot(dx, dy) || 1;
+        const bend = Math.min(44, len * 0.22) * (i % 2 ? 1 : -1);
+        segments.push({ a, b, cx: (a.sx + b.sx) / 2 - dy / len * bend, cy: (a.sy + b.sy) / 2 + dx / len * bend, len, start: length }); length += len;
+      }
+      const head = this._reducedMotion ? length : (time * 0.72 + order * 140) % (length + 80);
+      let anchor = points[points.length - 1];
+      ctx.save(); ctx.setLineDash([2, 7]); ctx.strokeStyle = this._hexToRGBA(cat.color, alpha * 0.25); ctx.lineWidth = 1;
+      for (const s of segments) { ctx.beginPath(); ctx.moveTo(s.a.sx, s.a.sy); ctx.quadraticCurveTo(s.cx, s.cy, s.b.sx, s.b.sy); ctx.stroke(); }
+      ctx.restore();
+      // Draw only the 230px ink wake, independent of the viewport/path length.
+      const first = this._reducedMotion ? 1 : Math.max(1, Math.ceil((head - 230) / 23));
+      const last = Math.min(Math.floor(length / 23), Math.floor(head / 23));
+      for (let step = first; step <= last; step++) {
+        const d = step * 23, s = segments.find(s => d >= s.start && d <= s.start + s.len);
+        if (!s) continue;
+        const u = (d - s.start) / s.len, inv = 1 - u;
+        const x = inv * inv * s.a.sx + 2 * inv * u * s.cx + u * u * s.b.sx, y = inv * inv * s.a.sy + 2 * inv * u * s.cy + u * u * s.b.sy;
+        const angle = Math.atan2(2 * inv * (s.cy - s.a.sy) + 2 * u * (s.b.sy - s.cy), 2 * inv * (s.cx - s.a.sx) + 2 * u * (s.b.sx - s.cx));
+        const side = step % 2 ? 1 : -1, age = head - d;
+        const fade = this._reducedMotion ? 0.75 : Math.max(0, Math.min(1, age / 16, 1 - age / 230));
+        this._drawDirectionalPaw(ctx, x - Math.sin(angle) * 5.8 * side, y + Math.cos(angle) * 5.8 * side, angle, this._catFilter ? 6.2 : 5.4, cat.color, alpha * fade);
+        anchor = { sx: x, sy: y };
+      }
+      const width = Math.min(154, W - 32), x = Math.max(width / 2 + 10, Math.min(W - width / 2 - 10, anchor.sx));
+      let y = Math.max(58, Math.min(H - 38, anchor.sy - 30));
+      for (let pass = 0; pass < 6; pass++) {
+        const hit = placed.find(b => starRectOverlap({ x: x - width / 2, y: y - 14, w: width, h: 28 }, b));
+        if (!hit) break;
+        y = y + 34 < H - 30 ? y + 34 : y - 34;
+      }
+      if (placed.some(b => starRectOverlap({ x: x - width / 2, y: y - 14, w: width, h: 28 }, b))) continue;
+      placed.push({ x: x - width / 2, y: y - 14, w: width, h: 28 });
+      this._drawStarRibbon(ctx, x, y, { ...cat, live }, alpha, width, labels);
+    }
+  }
+
+  _drawStarOrbit(ctx, hero, orbit, W, H, alpha, time) {
+    const { x, y, radius } = orbit;
+    this._drawStarDial(ctx, x, y, radius, alpha * 0.30, -time * 0.0006);
+    ctx.save(); ctx.font = '500 11px -apple-system, BlinkMacSystemFont, sans-serif';
+    const portalByKey = new Map();
+    for (const p of orbit.portals) {
+      const c = p.passage, state = this._citationStates.get(c.id)?.state, crimson = state === 'updated' || state === 'gone';
+      const color = crimson ? '#E86A58' : !c.actionable ? '#9E958E' : c.type === 'matter' ? '#82B4FF' : c.type === 'message' ? '#F0C674' : '#D98C5F';
+      this._drawMemoryFilament(ctx, x, y, p.x, p.y, color, alpha, { crimson, readonly: !c.actionable, phase: orbit.portals.indexOf(p) });
+      if (c.key && !portalByKey.has(c.key)) portalByKey.set(c.key, { ...p, color, crimson });
+      this._starGlow(ctx, p.x, p.y, 22, color, alpha * (crimson ? 0.5 : 0.25));
+      ctx.fillStyle = this._hexToRGBA(color, alpha); ctx.strokeStyle = '#FFF6E3'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y - 8); ctx.lineTo(p.x + 8, p.y); ctx.lineTo(p.x, p.y + 8); ctx.lineTo(p.x - 8, p.y); ctx.closePath(); ctx.fill(); ctx.stroke();
+      const title = starPassageTitle(c, this.plugin.cafeClient);
+      const sub = crimson ? state === 'gone' ? '已不可读' : '原文已更新 · 点此核对' : !c.actionable ? '只读出处' : c.sublabel;
+      if (p.label) {
+        this._starText(ctx, this._clipStarText(title, p.label.w - 4, ctx), p.label.x + p.label.w / 2, p.label.y, '#F6ECE0', 11, alpha);
+        this._starText(ctx, this._clipStarText(sub, p.label.w - 4, ctx), p.label.x + p.label.w / 2, p.label.y + 16, crimson ? '#F38B7A' : '#B9AA9A', 9, alpha);
+      }
+      this._canvasHits.push({ key: 'passage:' + c.id, kind: 'passage', passage: c, x: p.x - 16, y: p.y - 16, w: 32, h: 32, label: title + ' · ' + sub + ' · ' + c.ref });
+      this._satellitePos.push({ sx: p.x, sy: p.y, passage: c });
+    }
+    for (const p of orbit.peers) {
+      const gate = p.peer.keys.map(k => portalByKey.get(k)).find(Boolean);
+      if (gate) this._drawMemoryFilament(ctx, gate.x, gate.y, p.x, p.y, gate.color, alpha * 0.8, { crimson: gate.crimson, readonly: !gate.passage.actionable, phase: orbit.peers.indexOf(p) });
+      this._starGlow(ctx, p.x, p.y, 24, '#E6BC7A', alpha * 0.4);
+      this._drawStarShape(ctx, p.x, p.y, 5, 6, 2.8, '#F5C85C', alpha);
+      if (p.label) {
+        this._starText(ctx, this._clipStarText(p.peer.title, p.label.w - 4, ctx), p.label.x + p.label.w / 2, p.label.y, '#F7DC9E', 11, alpha);
+        this._starText(ctx, gate ? '同引 · ' + this._clipStarText(starPassageTitle(gate.passage, this.plugin.cafeClient), p.label.w - 45, ctx) : '共享来源 · 切换密道可查看', p.label.x + p.label.w / 2, p.label.y + 16, '#C8B496', 9, alpha);
+      }
+      this._canvasHits.push({ key: 'peer:' + p.peer.path, kind: 'peer', peer: p.peer, x: p.x - 17, y: p.y - 17, w: 34, h: 34, label: p.peer.title + ' · 共享猫咖密道' });
+    }
+    ctx.font = '500 ' + (W < 440 ? 12 : 14) + 'px -apple-system, sans-serif';
+    const title = this._clipStarText(hero.note?.title || hero.file.basename, Math.min(W - 28, 420), ctx);
+    this._starText(ctx, title, x, y + 22, '#FFF8EB', W < 440 ? 12 : 14, alpha);
+    const meta = '被 ' + hero.backlinks + ' 篇链接 · ' + (hero.passages.length ? hero.passages.length + ' 条密道' : '暂无猫咖密道') + ' · ' + (this._selectedPeers?.length || 0) + ' 颗关联星';
+    this._starText(ctx, meta, x, y + 44, '#C6B8A8', W < 440 ? 9 : 11, alpha);
+    const open = { key: 'open', kind: 'open', x: x - 48, y: y + 64, w: 96, h: 24, label: '打开当前笔记' };
+    ctx.fillStyle = 'rgba(30,24,21,0.84)'; ctx.strokeStyle = this._hexToRGBA('#E6BC7A', alpha * 0.6); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(open.x, open.y, open.w, open.h, 12); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(open.x + 13, open.y + 16); ctx.lineTo(open.x + 21, open.y + 8); ctx.lineTo(open.x + 15, open.y + 8); ctx.moveTo(open.x + 21, open.y + 8); ctx.lineTo(open.x + 21, open.y + 14); ctx.stroke();
+    this._starText(ctx, '打开笔记', x + 9, open.y + 5, '#F6DCAA', 11, alpha); this._canvasHits.push(open);
+    for (const r of orbit.ribbons) this._drawStarRibbon(ctx, r.x, r.y, r.cat, alpha, r.width, []);
+    const pageAction = (kind, total, limit, at, px) => {
+      if (total <= limit) return;
+      const text = (kind === 'sources' ? '密道' : kind === 'peers' ? '关联星' : '共创') + ' ' + ((at || 0) % Math.ceil(total / limit) + 1) + '/' + Math.ceil(total / limit) + ' ›';
+      const hit = { key: kind, kind, x: px, y: H - 24, w: Math.min(140, W / 3 - 12), h: 20, label: text };
+      this._starText(ctx, text, hit.x + hit.w / 2, hit.y + 3, '#E6BC7A', 10, alpha); this._canvasHits.push(hit);
+    };
+    pageAction('sources', hero.passages.length, orbit.sourceLimit, this._sourcePage, 8);
+    pageAction('peers', this._selectedPeers?.length || 0, orbit.peerLimit, this._peerPage, W - Math.min(140, W / 3 - 12) - 8);
+    pageAction('cats', hero.footprints.length, orbit.catLimit, this._catPage, W / 2 - Math.min(140, W / 3 - 12) / 2);
+    const keyboard = this._canvasHits.find(h => h.key === this._keyboardHitKey);
+    if (keyboard) { ctx.strokeStyle = '#FFF0CA'; ctx.setLineDash([2, 2]); ctx.strokeRect(keyboard.x - 2, keyboard.y - 2, keyboard.w + 4, keyboard.h + 4); }
+    ctx.restore();
+  }
+
+  _canvasHitAt(x, y) {
+    return [...(this._canvasHits || [])].reverse().find(h => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) || null;
+  }
+
+  _activateCanvasHit(hit) {
+    if (!hit) return;
+    if (this._starTooltip) this._starTooltip.style.display = 'none';
+    if (hit.kind === 'passage') this._openStarPassage(hit.passage);
+    else if (hit.kind === 'open') this._openSelectedStar();
+    else if (hit.kind === 'peer') {
+      if (this._stars.some(s => s.file.path === hit.peer.path)) this._selectStar(hit.peer.path);
+      else this.plugin.openStarChart({ focusPath: hit.peer.path });
+    } else if (hit.kind === 'cat') {
+      const key = this._catFilter === hit.cat.catKey ? null : hit.cat.catKey;
+      if (this._selectedPath) this._clearStarSelection();
+      this._catFilter = key; this._setMarauderMode(true);
+    } else {
+      const field = { sources: '_sourcePage', peers: '_peerPage', cats: '_catPage' }[hit.kind];
+      if (field) { this[field] = (this[field] || 0) + 1; this._keyboardHitKey = null; }
+    }
+  }
+
+  _openSelectedStar() {
+    const s = this._stars.find(s => s.file.path === this._selectedPath);
+    if (s) this.plugin.app.workspace.getLeaf(false).openFile(s.file);
   }
 
   // ── Canvas drawing helpers ──
@@ -5616,7 +6304,7 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
   /** `{ companionsOnly: true }` when only who is summoned changed: the chat then refreshes its strip in place. */
   refreshAllViews(opts = {}) {
-    for (const type of [VIEW_TYPE_PROVENANCE_LENS, VIEW_TYPE_CAFE_CHAT]) {
+    for (const type of [VIEW_TYPE_PROVENANCE_LENS, VIEW_TYPE_CAFE_CHAT, VIEW_TYPE_STAR_CHART]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
         leaf.view?.refresh?.(opts);
       }
@@ -5911,18 +6599,22 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
   async openStarChart({ focusPath = null } = {}) {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_STAR_CHART);
     if (existing.length) {
-      this.app.workspace.revealLeaf(existing[0]);
+      await this.app.workspace.revealLeaf(existing[0]);
       const view = existing[0].view;
       if (view._focusPath && !focusPath) view._paused = false;
       view._focusPath = focusPath;
       await existing[0].view?.onOpen?.();
+      if (focusPath) view._selectStar?.(focusPath, true, true);
+      view._chartCanvas?.focus({ preventScroll: true });
       return;
     }
     const leaf = this.app.workspace.getLeaf(true);
     if (leaf) {
       await leaf.setViewState({ type: VIEW_TYPE_STAR_CHART, active: true });
       if (focusPath) { leaf.view._focusPath = focusPath; await leaf.view.onOpen(); }
-      this.app.workspace.revealLeaf(leaf);
+      await this.app.workspace.revealLeaf(leaf);
+      if (focusPath) leaf.view._selectStar?.(focusPath, true, true);
+      leaf.view._chartCanvas?.focus({ preventScroll: true });
     }
   }
 
@@ -6502,6 +7194,16 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
 
   updateStatusBar() {
     if (!this.statusBarItem) return;
+    const item = this.statusBarItem;
+    item.hidden = this.settings.showStatusBar !== true;
+    if (item.hidden) {
+      item.style.display = 'none';
+      item.setText('');
+      item.removeAttribute('title');
+      item.removeAttribute('aria-label');
+      return;
+    }
+    item.style.removeProperty('display');
     const files = this.app.vault.getMarkdownFiles();
     let count = 0;
     for (const file of files) {
@@ -6510,10 +7212,13 @@ class ClowderAtlasPlugin extends obsidian.Plugin {
     }
     if (this.isCafeConnected) {
       const summoned = this.getSummonedCats().length;
-      this.statusBarItem.setText(`Atlas · ${count} 篇 · 伴读 ${summoned}/${this.cafeClient.cats.length}`);
+      item.setText(`Atlas ${summoned}/${this.cafeClient.cats.length}`);
+      item.setAttribute('title', `Atlas · ${count} 篇记忆 · 伴读 ${summoned}/${this.cafeClient.cats.length}`);
     } else {
-      this.statusBarItem.setText(`Atlas · ${count} 篇`);
+      item.setText('Atlas');
+      item.setAttribute('title', `Atlas · ${count} 篇记忆`);
     }
+    item.setAttribute('aria-label', item.getAttribute('title'));
   }
 
   // ── Helpers ──

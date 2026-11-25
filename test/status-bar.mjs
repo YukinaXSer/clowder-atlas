@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';
+const host={Plugin:class{},ItemView:class{},PluginSettingTab:class{},Modal:class{},Notice:class{}};
+const box={module:{exports:{}},require:()=>host,console,URL,setTimeout,clearTimeout,setInterval,clearInterval};
+vm.runInNewContext(fs.readFileSync(new URL('../src/main.js',import.meta.url),'utf8'),box);
+const Plugin=box.module.exports,p=new Plugin();let pass=0,fail=0;
+const attrs=new Map();p.statusBarItem={hidden:false,text:'stale long text',style:{display:'',removeProperty(k){this[k]='';}},setText(t){this.text=t;},setAttribute(k,v){attrs.set(k,v);},removeAttribute(k){attrs.delete(k);},getAttribute(k){return attrs.get(k);}};
+const test=async(name,f)=>{try{await f();pass++;console.log('PASS '+name);}catch(e){fail++;console.log('FAIL '+name+': '+e.message);}};
+p.loadData=async()=>({atlasDir:'custom-notes',summonedCats:['one']});
+await test('older saved settings default to no Atlas status item without changing other preferences',async()=>{await p.loadSettings();assert.equal(p.settings.showStatusBar,false);assert.equal(p.settings.atlasDir,'custom-notes');});
+await test('disabled status is empty and absent from layout, and does not scan the vault',()=>{p.app={vault:{getMarkdownFiles(){throw Error('off must not scan');}}};p.updateStatusBar();assert(p.statusBarItem.hidden);assert.equal(p.statusBarItem.text,'');assert.equal(p.statusBarItem.style.display,'none');});
+p.app={vault:{getMarkdownFiles:()=>[{path:'a'},{path:'b'}]},metadataCache:{getFileCache:f=>({frontmatter:f.path==='a'?{atlas_version:'1.0',memory_type:'semantic'}:{}})}};
+p.getSummonedCats=()=>[{id:'one'}];
+await test('enabled offline status uses only Atlas, with full count in the tooltip',()=>{p.settings.showStatusBar=true;p.updateStatusBar();assert(!p.statusBarItem.hidden);assert.equal(p.statusBarItem.text,'Atlas');assert.equal(attrs.get('title'),'Atlas · 1 篇记忆');assert.equal(attrs.get('aria-label'),attrs.get('title'));});
+await test('connected status is short and its hover text keeps the complete counts',()=>{p.cafeClient={connected:true,cats:[{id:'one'},{id:'two'},{id:'three'}]};p.updateStatusBar();assert.equal(p.statusBarItem.text,'Atlas 1/3');assert.equal(attrs.get('title'),'Atlas · 1 篇记忆 · 伴读 1/3');});
+await test('turning the preference off immediately removes the text and old tooltip',()=>{p.settings.showStatusBar=false;p.updateStatusBar();assert(p.statusBarItem.hidden);assert.equal(p.statusBarItem.text,'');assert(!attrs.has('title'));assert(!attrs.has('aria-label'));});
+console.log(JSON.stringify({pass,fail}));process.exitCode=fail?1:0;
